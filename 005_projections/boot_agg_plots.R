@@ -707,7 +707,7 @@ for (y in c(2030, 2050, 2080, 2100)){
   
   g<-ggplot(data_long, aes(x = ssp, y = delta_value*100, fill = component)) +
     geom_bar(stat = "identity", position = "stack") +  # 'fill' scales the bars to 100%
-    scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+    scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
     # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
     labs(title = paste0("Year ",y),
          x = "SSP Scenario", 
@@ -737,7 +737,7 @@ for (y in c(2030, 2050, 2080, 2100)){
   # 
   g<-ggplot(data_long, aes(x = ssp, y = 100*delta_value, fill = component)) +
     geom_bar(stat = "identity", position = "stack") +  # 'fill' scales the bars to 100%
-    scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+    scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
     #scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
     labs(title = paste0("Year ",y),
          x = "SSP Scenario", 
@@ -770,7 +770,7 @@ data_long$component <- factor(data_long$component,
 
 g<-ggplot(data_long, aes(x = year, y = delta_value*100, fill = as.factor(component))) +
   geom_area() +
-  scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+  scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
   #geom_line(aes(x=year, y=100*delta_hdi_mean))+
   facet_wrap(~ ssp) +
   # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
@@ -803,7 +803,7 @@ data_long$component <- factor(data_long$component,
 
 g<-ggplot(data_long, aes(x = year, y = delta_value*100, fill = as.factor(component))) +
   geom_area() +
-  scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+  scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
   #geom_line(aes(x=year, y=100*delta_hdi_mean))+
   facet_wrap(~ ssp) +
   # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
@@ -858,10 +858,10 @@ all_data_med<-all_data%>%group_by(ssp, year)%>%
             perc_delta_lifex_index_mean=median(perc_delta_lifex_index_mean, na.rm=TRUE),
             perc_delta_edu_index_mean=median(perc_delta_edu_index_mean, na.rm=TRUE))%>%distinct()%>%
   
-  mutate(hdi_cc=hdi+perc_delta_hdi_mean,
-         income_index_cc=income_index+perc_delta_income_index_mean,
-         edu_index_cc=edu_index+perc_delta_edu_index_mean,
-         lifex_index_cc=lifex_index+perc_delta_lifex_index_mean)%>%
+  mutate(hdi_cc=hdi+hdi*perc_delta_hdi_mean,
+         income_index_cc=income_index+income_index*perc_delta_income_index_mean,
+         edu_index_cc=edu_index+edu_index*perc_delta_edu_index_mean,
+         lifex_index_cc=lifex_index+lifex_index*perc_delta_lifex_index_mean)%>%
   
   mutate(glob_comp_lifex=(1/3)*perc_delta_hdi_mean*(log(lifex_index_cc)-log(lifex_index)),
          glob_comp_income=(1/3)*perc_delta_hdi_mean*(log(income_index_cc)-log(income_index)),
@@ -897,13 +897,13 @@ for (y in c(2030, 2050, 2080, 2100)){
   
   g<-ggplot(data_long, aes(x = ssp, y = perc_delta_value*100, fill = component)) +
     geom_bar(stat = "identity", position = "stack") +  # 'fill' scales the bars to 100%
-    scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+    scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
     # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
     labs(title = paste0("Year ",y),
          x = "SSP Scenario", 
-         y = "Total Loss (% points)",
+         y = "Total Percentage Loss",
          fill = "Component") +
-    ylim(-3.5, 0)+
+    ylim(-4, 0)+
     theme_bw() +
     theme(axis.text.x = element_text(angle = 60, hjust = 1),text = element_text(size = 20))  # Rotate x labels for readability
   ggsave(filename=file.path(out_dir, paste0("sign_perc_dam_share_ssp_comparison_",y, "_",spec,'_',vars, ".png")), g, width=8, height=5)
@@ -927,11 +927,11 @@ for (y in c(2030, 2050, 2080, 2100)){
   # 
   g<-ggplot(data_long, aes(x = ssp, y = 100*perc_delta_value, fill = component)) +
     geom_bar(stat = "identity", position = "stack") +  # 'fill' scales the bars to 100%
-    scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+    scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
     #scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
     labs(title = paste0("Year ",y),
          x = "SSP Scenario", 
-         y = "Total Loss (% points)",
+         y = "Total Percentage Loss",
          fill = "Component") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 60, hjust = 1),text = element_text(size = 20))  # Rotate x labels for readability
@@ -960,13 +960,13 @@ data_long$component <- factor(data_long$component,
 
 g<-ggplot(data_long, aes(x = year, y = perc_delta_value*100, fill = as.factor(component))) +
   geom_area() +
-  scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+  scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
   #geom_line(aes(x=year, y=100*perc_delta_hdi_mean))+
   facet_wrap(~ ssp) +
   # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
   labs(
     x = "SSP Scenario", 
-    y = "Total Loss (% points)",
+    y = "Total Percentage Loss",
     fill = "Component") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1),text = element_text(size = 20))  # Rotate x labels for readability
@@ -993,13 +993,13 @@ data_long$component <- factor(data_long$component,
 
 g<-ggplot(data_long, aes(x = year, y = perc_delta_value*100, fill = as.factor(component))) +
   geom_area() +
-  scale_fill_manual(values =c("#9B2226", "#E4A700", "#1B263B") ) +
+  scale_fill_manual(values =c("#048ba8", "#f18f01", "#2e4057") ) +
   #geom_line(aes(x=year, y=100*perc_delta_hdi_mean))+
   facet_wrap(~ ssp) +
   # scale_y_continuous(labels = scales::percent_format()) +  # Convert to percentage
   labs(
     x = "SSP Scenario", 
-    y = "Total Loss (% points)",
+    y = "Total Percentage Loss",
     fill = "Component") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 60, hjust = 1),text = element_text(size = 20))  # Rotate x labels for readability

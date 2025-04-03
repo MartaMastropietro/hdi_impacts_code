@@ -87,6 +87,7 @@ sel_countries<-c("CAN", "USA", "ITA", "RUS", "AUS", "VEN", "BRA", "ETH", "IND", 
 data<-arrow::read_feather(file.path(out_dir_lag,
           paste0(out_var,'_',spec,'_',type,'_',  agg,"_nlags",N, 
                  "_boot_impacts_all" , ".feather")) )
+
 data<-inner_join(data,pop_projection_gdlcode)
 
 ###
