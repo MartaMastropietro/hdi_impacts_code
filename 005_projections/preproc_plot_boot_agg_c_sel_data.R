@@ -408,7 +408,7 @@ library(dplyr)
 library(tidyr)
 library(RColorBrewer) 
 
-sel_countries<-c("USA", "ITA", "RUS", "CHN", "BRA", "ETH",  "AFG","IND")
+sel_countries<-c("USA", "ITA", "RUS", "CHN", "BRA", "ETH",  "AFG", "IND")
 
 # data <- data %>%
 #   filter( iso3 %in% sel_countries) 
