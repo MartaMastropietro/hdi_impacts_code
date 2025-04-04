@@ -344,6 +344,65 @@ for (o in out_variables){
   
 }
 
+
+
+
+################################################################################
+# plot in squared box, cumulative values only where significant 
+
+
+plot_data$var_name<-NA
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_TM" )]<-"diff_TM"
+plot_data$var_name[which(plot_data$ClimateVar=="RR_mean_i_diff_RR" )]<-"diff_RR"
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_HW" )]<-"diff_HW"
+plot_data$var_name[which(plot_data$ClimateVar=="RR_mean_i_diff_WD" )]<-"diff_WD"
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_PEXT" )]<-"diff_PEXT"
+plot_data$var_name[which(plot_data$ClimateVar=="HW_mean_i_diff_HW" )]<-"diff_HW"
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_RX" )]<-"diff_RX"
+plot_data$var_name[which(plot_data$ClimateVar=="TVAR_mean_i_diff_TVAR" )]<-"diff_TVAR"
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_WD" )]<-"diff_WD"
+plot_data$var_name[which(plot_data$ClimateVar=="WD_mean_i_diff_WD" )]<-"diff_WD"
+plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_TVAR" )]<-"diff_TVAR"
+
+variable_order<-c("diff_TM", "diff_RR","diff_HW", "diff_TVAR",
+                  "diff_WD","diff_PEXT" ,"diff_RX"
+)
+
+plot_data$CI_Lower<-NULL
+plot_data$CI_Upper<-NULL
+plot_data$CI_Lower_iso<-NULL
+plot_data$CI_Upper_iso<-NULL
+plot_data$Nl<-NULL
+
+
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggpattern)  # For striped patterns
+library(RColorBrewer)
+
+# Reshape data for plotting
+data_long <- plot_data %>%
+  pivot_wider(names_from = ref, values_from = CumEffect)
+
+ggplot(data_long, aes(x = var_name, y = Response)) +
+  geom_tile(color = "black", fill = "white") +  # Empty cells white
+  geom_tile(aes(fill = med), data = data_long, alpha = 0.7, width = 0.3, color="black") +
+  geom_tile(aes(fill = q25), data = data_long, alpha = 0.7, width = 0.3,  color="black", position = position_nudge(x = -0.3)) +
+  geom_tile(aes(fill = q75), data = data_long, alpha = 0.7, width = 0.3,  color="black", position = position_nudge(x = 0.3)) +
+  #scale_fill_manual(values = ref_colors) +
+  theme_bw() +labs(fill = "CumEffect")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  scale_fill_steps2() 
+  
+ggsave(file.path(out_dir, paste0("cumulative_lag_effects_simple_", type,'_',spec, ".png")), width = 7, height=4)
+
+
+
+
+################################################################################
+
 plot_data$var_name<-NA
 plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_TM" )]<-"diff_TM, TM"
 plot_data$var_name[which(plot_data$ClimateVar=="RR_mean_i_diff_RR" )]<-"diff_RR, RR"

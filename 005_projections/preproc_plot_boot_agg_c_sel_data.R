@@ -163,11 +163,11 @@ all_data<-glob_data[, c("ssp", "model", "iso3", "year",  "edu_index",
 # write.csv(x=all_data, file=file.path(out_dir_lag,paste0('c_sel_d_s_agg_',out_var,"_",type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
 data<-inner_join(data, all_data)
 
-write.csv(x=data, file=file.path(out_dir_lag,paste0('c_sel_d_s_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
+write.csv(x=data, file=file.path(out_dir_lag,paste0('c_sel_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
 
 
 
-#### median
+#### median (using all values)
 
 
 
@@ -284,7 +284,7 @@ all_data<-glob_data[, c("ssp", "iso3", "year",  "edu_index",
 # write.csv(x=all_data, file=file.path(out_dir_lag,paste0('c_sel_d_s_agg_',out_var,"_",type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
 data<-inner_join(data, all_data)
 
-write.csv(x=data, file=file.path(out_dir_lag,paste0('c_sel_med_d_s_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
+write.csv(x=data, file=file.path(out_dir_lag,paste0('c_sel_med_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")), row.names = FALSE)
 
 ################################################################################
 ################################################################################
@@ -292,9 +292,9 @@ write.csv(x=data, file=file.path(out_dir_lag,paste0('c_sel_med_d_s_agg_all_idx_'
 
 
 
-### plot with all models 
+### plot with all models (all values)
 
-data<-read_csv(file.path(out_dir_lag,paste0('c_sel_d_s_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")))
+data<-read_csv(file.path(out_dir_lag,paste0('c_sel_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")))
 
 out_dir_sel<-file.path(out_dir, "sel_countries")
 if(!dir.exists(out_dir_sel)){dir.create(out_dir_sel)}
@@ -396,9 +396,9 @@ for (y in c(2030, 2050,2080, 2100)){
 ################################################################################
 
 
-### plot with median
+### plot with median (all values)
 
-data<-read_csv(file.path(out_dir_lag,paste0('c_sel_med_d_s_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")))
+data<-read_csv(file.path(out_dir_lag,paste0('c_sel_med_agg_all_idx_',type,'_',spec,'_', "_pop_weight_nlags_",N,"boot_int.csv")))
 
 out_dir_sel<-file.path(out_dir, "sel_countries")
 if(!dir.exists(out_dir_sel)){dir.create(out_dir_sel)}

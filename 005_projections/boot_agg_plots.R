@@ -65,6 +65,19 @@ quant90 <- function(x){
 out_var<-"hdi"
 glob_data<-read_csv(file.path(out_dir_lag,paste0('g_d_s_agg_',out_var,"_",type,'_',spec,'_',vars, "_pop_weight_nlags_",N,"boot_all.csv")))
 
+# mean values of median model at some years, with ci 
+glob_data_med<-glob_data%>%group_by(year,ssp)%>%summarise(across(-model, median, na.rm = TRUE))%>%ungroup()
+glob_data_med$delta_mean<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$delta_q10<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant10)
+glob_data_med$delta_q90<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant90)
+glob_data_med$perc_delta_mean<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$perc_delta_q10<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant10)
+glob_data_med$perc_delta_q90<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant90)
+print(out_var)
+glob_data_med[which(glob_data_med$year==2050), c(1,2,3007:3012)]
+glob_data_med[which(glob_data_med$year==2100), c(1,2,3007:3012)]
+
+
 glob_data$delta_mean<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
 glob_data$delta_med<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, median, na.rm=TRUE)
 glob_data$delta_q10<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, quant10)
@@ -122,6 +135,21 @@ ggsave(filename=file.path(out_dir, paste0("hdi_",spec,'_',vars,"_", "pop_w_glob_
 out_var<-"income_index"
 glob_data<-read_csv(file.path(out_dir_lag,paste0('g_d_s_agg_',out_var,"_",type,'_',spec,'_',vars, "_pop_weight_nlags_",N,"boot_all.csv")))
 
+
+# mean values of median model at some years, with ci 
+glob_data_med<-glob_data%>%group_by(year,ssp)%>%summarise(across(-model, median, na.rm = TRUE))%>%ungroup()
+glob_data_med$delta_mean<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$delta_q10<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant10)
+glob_data_med$delta_q90<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant90)
+glob_data_med$perc_delta_mean<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$perc_delta_q10<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant10)
+glob_data_med$perc_delta_q90<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant90)
+print(out_var)
+glob_data_med[which(glob_data_med$year==2050), c(1,2,3007:3012)]
+glob_data_med[which(glob_data_med$year==2100), c(1,2,3007:3012)]
+
+
+
 glob_data$delta_mean<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
 glob_data$delta_med<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, median, na.rm=TRUE)
 glob_data$delta_q10<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, quant10)
@@ -178,6 +206,23 @@ ggsave(filename=file.path(out_dir, paste0("income_index_",spec,'_',vars,"_", "po
 out_var<-"lifex_index"
 glob_data<-read_csv(file.path(out_dir_lag,paste0('g_d_s_agg_',out_var,"_",type,'_',spec,'_',vars, "_pop_weight_nlags_",N,"boot_all.csv")))
 
+
+
+# mean values of median model at some years, with ci 
+glob_data_med<-glob_data%>%group_by(year,ssp)%>%summarise(across(-model, median, na.rm = TRUE))%>%ungroup()
+glob_data_med$delta_mean<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$delta_q10<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant10)
+glob_data_med$delta_q90<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant90)
+glob_data_med$perc_delta_mean<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$perc_delta_q10<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant10)
+glob_data_med$perc_delta_q90<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant90)
+print(out_var)
+glob_data_med[which(glob_data_med$year==2050), c(1,2,3007:3012)]
+glob_data_med[which(glob_data_med$year==2100), c(1,2,3007:3012)]
+
+
+
+
 glob_data$delta_mean<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
 glob_data$delta_med<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, median, na.rm=TRUE)
 glob_data$delta_q10<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, quant10)
@@ -233,6 +278,23 @@ ggsave(filename=file.path(out_dir, paste0("lifex_index_",spec,'_',vars,"_", "pop
 
 out_var<-"edu_index"
 glob_data<-read_csv(file.path(out_dir_lag,paste0('g_d_s_agg_',out_var,"_",type,'_',spec,'_',vars, "_pop_weight_nlags_",N,"boot_all.csv")))
+
+
+
+# mean values of median model at some years, with ci 
+glob_data_med<-glob_data%>%group_by(year,ssp)%>%summarise(across(-model, median, na.rm = TRUE))%>%ungroup()
+glob_data_med$delta_mean<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$delta_q10<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant10)
+glob_data_med$delta_q90<-apply(glob_data_med%>%select(matches("^delta\\.\\d+$")), 1, quant90)
+glob_data_med$perc_delta_mean<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, mean, na.rm=TRUE)
+glob_data_med$perc_delta_q10<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant10)
+glob_data_med$perc_delta_q90<-apply(glob_data_med%>%select(matches("^perc_delta\\.\\d+$")), 1, quant90)
+print(out_var)
+glob_data_med[which(glob_data_med$year==2050), c(1,2,3007:3012)]
+glob_data_med[which(glob_data_med$year==2100), c(1,2,3007:3012)]
+
+
+
 
 glob_data$delta_mean<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, mean, na.rm=TRUE)
 glob_data$delta_med<-apply(glob_data%>%select(matches("^delta\\.\\d+$")), 1, median, na.rm=TRUE)
@@ -863,9 +925,9 @@ all_data_med<-all_data%>%group_by(ssp, year)%>%
          edu_index_cc=edu_index+edu_index*perc_delta_edu_index_mean,
          lifex_index_cc=lifex_index+lifex_index*perc_delta_lifex_index_mean)%>%
   
-  mutate(glob_comp_lifex=(1/3)*perc_delta_hdi_mean*(log(lifex_index_cc)-log(lifex_index)),
-         glob_comp_income=(1/3)*perc_delta_hdi_mean*(log(income_index_cc)-log(income_index)),
-         glob_comp_edu=(1/3)*perc_delta_hdi_mean*(log(edu_index_cc)-log(edu_index)))%>%
+  mutate(glob_comp_lifex=(1/3)*(log(lifex_index_cc)-log(lifex_index)),
+         glob_comp_income=(1/3)*(log(income_index_cc)-log(income_index)),
+         glob_comp_edu=(1/3)*(log(edu_index_cc)-log(edu_index)))%>%
   #normalize
   mutate(const=perc_delta_hdi_mean/(glob_comp_lifex+glob_comp_income+glob_comp_edu),
          glob_comp_lifex=glob_comp_lifex*const,
@@ -1340,3 +1402,154 @@ for (sc in unique(data_median$ssp)){
     # gc()
   }
 }
+
+
+
+################################################################################
+################################################################################
+################################################################################
+
+
+rm(list=ls())
+library(readr)
+#library(data.table)
+library(reshape2)
+library(dplyr)
+library(purrr)
+
+library(stringr)
+
+specifications<-c("mean_mod") #   ,"mean_mod_spec")
+types<-c("all_extr_tp") #  , "all_vars_adap")#, "all_vars_controls", "all_vars_autoreg")
+vars_in_proj<-c( "all_extr_tp", "extr_only")
+spec_type<-"dlm"
+effect<-"growth_eff"
+#lags number 
+#N<-8
+N<-"_mix_"
+
+spec<-specifications[1]
+type<-types[1]
+vars<-vars_in_proj[1]
+
+out_dir<-"output/projections/original_comp/pop_weight_gdlcode/test_proj_funcs"
+if(!dir.exists(out_dir)){dir.create(out_dir)}
+out_dir<-"output/projections/original_comp/pop_weight_gdlcode/test_proj_funcs/boot_interv"
+if(!dir.exists(out_dir)){dir.create(out_dir)}
+
+out_dir_pop<-"output/projections/original_comp/pop_weight_gdlcode"
+
+out_dir_lag<-file.path(out_dir_pop, "lag_models")
+if(!dir.exists(out_dir_lag)){dir.create(out_dir_lag)}
+
+
+nboot<-1000
+
+
+pop_projection_gdlcode <- read_csv("output/projections/original_comp/pop_projection_gdlcode_sum_2015_2100.csv")
+colnames(pop_projection_gdlcode)[which(colnames(pop_projection_gdlcode)=="value")]<-"pop_gdl"
+gdlcodes_iso <- read_csv("data/gdlcodes_iso.csv")
+pop_projection_gdlcode<-inner_join(pop_projection_gdlcode, gdlcodes_iso)
+pop_projection_gdlcode<-pop_projection_gdlcode%>%
+  group_by(iso3, year, ssp)%>%
+  mutate(pop_country=sum(pop_gdl))
+pop_projection_gdlcode<-unique(pop_projection_gdlcode)
+
+# fix countries for aggregations 
+sel_countries<-c("CAN", "USA", "ITA", "RUS", "AUS", "VEN", "BRA", "ETH", "IND", "CHN", "NIG", "SDN", "VNM" , "AFG", "SAU")
+
+
+# create hdi projections with past, future proj values 
+
+out_dir_comp<-"output/projections/original_comp" 
+
+data_proj_gni<-read_csv(file.path(out_dir_comp, paste0("preproc_proj_", "gnipc", ".csv")))
+length(unique(data_proj_gni$iso3))
+data_proj_leb<-read_csv(file.path(out_dir_comp, paste0("preproc_proj_", "leb", ".csv")))
+length(unique(data_proj_leb$iso3))
+data_proj_eys<-read_csv(file.path(out_dir_comp, paste0("preproc_proj_", "eys", ".csv")))
+length(unique(data_proj_eys$iso3))
+
+
+common_iso<-intersect(intersect(unique(data_proj_eys$iso3), unique(data_proj_gni$iso3)), unique(data_proj_leb$iso3))
+data_proj_gni<-data_proj_gni%>%filter(iso3 %in% common_iso)
+data_proj_leb<-data_proj_leb%>%filter(iso3 %in% common_iso)
+data_proj_eys<-data_proj_eys%>%filter(iso3 %in% common_iso)
+
+
+data_proj_gni$pop<-NULL
+data_proj_leb$pop<-NULL
+data_proj_eys$pop<-NULL
+
+data_proj_gni<-unique(data_proj_gni)
+data_proj_eys<-unique(data_proj_eys)
+data_proj_leb<-unique(data_proj_leb)
+
+# max min values calculated over all horizon 1990-2100
+# max min log gnipc
+data_proj_gni$lgnipc<-log(data_proj_gni$value_interp)
+max_lgnipc<-max(data_proj_gni$lgnipc, na.rm=TRUE)
+min_lgnipc<-min(data_proj_gni$lgnipc, na.rm=TRUE)
+# max min eys
+max_eys<-max(data_proj_eys$value_interp, na.rm=TRUE)
+min_eys<-min(data_proj_eys$value_interp, na.rm=TRUE)
+# max min log gnipc
+max_leb<-max(data_proj_leb$value_interp, na.rm=TRUE)
+min_leb<-min(data_proj_leb$value_interp, na.rm=TRUE)
+
+colnames(data_proj_gni)[which(colnames(data_proj_gni)=="Scenario")]<-"ssp"
+colnames(data_proj_eys)[which(colnames(data_proj_eys)=="Scenario")]<-"ssp"
+colnames(data_proj_leb)[which(colnames(data_proj_leb)=="Scenario")]<-"ssp"
+
+data_proj_gni<-inner_join(data_proj_gni, unique(pop_projection_gdlcode[, c("iso3", "year", "ssp", "pop_country")]) )
+data_proj_eys<-inner_join(data_proj_eys, unique(pop_projection_gdlcode[, c("iso3", "year", "ssp", "pop_country")]) )
+data_proj_leb<-inner_join(data_proj_leb, unique(pop_projection_gdlcode[, c("iso3", "year", "ssp", "pop_country")]) )
+
+data_proj_gni$log_value_interp<-log(data_proj_gni$value_interp)
+data_proj_gni$income_index<-(data_proj_gni$log_value_interp-min_lgnipc)/(max_lgnipc-min_lgnipc)
+data_proj_leb$lifex_index<-(data_proj_leb$value_interp-min_leb)/(max_leb-min_leb)
+data_proj_eys$edu_index<-(data_proj_eys$value_interp-min_eys)/(max_eys-min_eys)
+
+
+data_proj_gni$value_interp<-NULL
+data_proj_gni$log_value_interp<-NULL
+data_proj_gni$lgnipc<-NULL
+
+data_proj_leb$value_interp<-NULL
+data_proj_eys$value_interp<-NULL
+
+data_proj_gni$pop<-NULL
+data_proj_leb$pop<-NULL
+data_proj_eys$pop<-NULL
+
+data_proj_leb$pop_country<-NULL
+data_proj_eys$pop_country<-NULL
+
+data_all<-inner_join(data_proj_gni, data_proj_eys)
+data_all<-inner_join(data_all, data_proj_leb)
+
+
+data_all$hdi<-(data_all$income_index*data_all$edu_index*data_all$lifex_index)^(1/3)
+
+data_all_glob<-data_all%>%group_by(year, ssp)%>%transmute(
+  glob_income_index=weighted.mean(income_index, pop_country, na.rm=TRUE),
+  glob_edu_index=weighted.mean(edu_index, pop_country, na.rm=TRUE),
+  glob_lifex_index=weighted.mean(lifex_index, pop_country, na.rm=TRUE),
+  glob_hdi=weighted.mean(hdi, pop_country, na.rm=TRUE)
+)%>%distinct()
+
+
+ggplot(data_all_glob, aes(x=year, y=glob_hdi, color=ssp))+geom_line()+theme_bw()
+
+ggplot(data_all_glob, aes(x=year, y=glob_income_index, color=ssp))+geom_line()+theme_bw()
+
+ggplot(data_all_glob, aes(x=year, y=glob_edu_index, color=ssp))+geom_line()+theme_bw()
+
+ggplot(data_all_glob, aes(x=year, y=glob_lifex_index, color=ssp))+geom_line()+theme_bw()
+
+data_all_glob$glob_hdi[which(data_all_glob$year==2019 & data_all_glob$ssp=="ssp370")]-data_all_glob$glob_hdi[which(data_all_glob$year==2020 & data_all_glob$ssp=="ssp370")]
+data_all_glob$glob_income_index[which(data_all_glob$year==2019 & data_all_glob$ssp=="ssp370")]-data_all_glob$glob_income_index[which(data_all_glob$year==2020 & data_all_glob$ssp=="ssp370")]
+data_all_glob$glob_edu_index[which(data_all_glob$year==2019 & data_all_glob$ssp=="ssp370")]-data_all_glob$glob_edu_index[which(data_all_glob$year==2020 & data_all_glob$ssp=="ssp370")]
+data_all_glob$glob_lifex_index[which(data_all_glob$year==2019 & data_all_glob$ssp=="ssp370")]-data_all_glob$glob_lifex_index[which(data_all_glob$year==2020 & data_all_glob$ssp=="ssp370")]
+
+
