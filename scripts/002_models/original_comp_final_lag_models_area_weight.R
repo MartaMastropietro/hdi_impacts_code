@@ -35,7 +35,9 @@ all_controls <- read_csv("data/controls/all_controls.csv")
 data<-left_join(data,all_controls )
 
 ### data climate
-data_cl <- read_csv("data/climate_data/era5/data_climate_gdl_1950_2023.csv")
+data_cl <- read_csv("data/climate_data/era5/data_climate_gdl_pop_weight_1950_2023.csv")
+rr_cols <- grep("RR", names(data_cl), value = TRUE)
+data_cl[rr_cols] <- lapply(data_cl[rr_cols], function(x) x / 360)
 
 
 ### vcov: regional, dk, iso3
@@ -105,7 +107,7 @@ for ( i in 0:10){
 # mean hist climate
 
 # ten years avg of previous years 
-data<-left_join(data_cl, data)
+# data<-left_join(data_cl, data)
 
 library(slider)
 data <- data %>%
@@ -246,24 +248,24 @@ vars_corr<-data.frame(
   varns=c('diff_TM','diff_RR', "diff_TVAR", "diff_HW", "diff_RX", "diff_PEXT", "diff_WD", "diff_SPI", "diff_SPEI", "diff_PET"),
   ext_names=c("Mean temp.", "Total precip.","Temp. variability","Heat waves","Max 5 days cum. rain","Extr. rainy days", "Wet days",   "Droughts (SPI)", "Droughts (SPEI)", "PET"),
   modns=c('TM_mean','RR_mean', "TVAR_mean", "HW_mean", "RX_mean", "PEXT_mean", "WD_mean", "SPI_mean", "SPEI_mean", "PET_mean"),
-  units=c("°C", "mm", "°C", "°C",  "mm", "mm", "days", "", "", "" )
+  units=c("°C", "mm/day", "°C", "°C",  "mm", "mm", "days", "", "", "" )
 )
 
 vars_corr_10y<-data.frame(
   varns=c('diff_TM','diff_RR', "diff_TVAR", "diff_HW", "diff_RX", "diff_PEXT", "diff_WD", "diff_SPI", "diff_SPEI", "diff_PET"),
   ext_names=c("Mean temp.", "Total precip.","Temp. variability","Heat waves","Max 5 days cum. rain","Extr. rainy days", "Wet days",   "Droughts (SPI)", "Droughts (SPEI)",  "PET"),
   modns=c('TM_10y_mean','RR_10y_mean', "TVAR_10y_mean", "HW_10y_mean", "RX_10y_mean", "PEXT_10y_mean", "WD_10y_mean", "SPI_10y_mean", "SPEI_10y_mean", "PET_10y_mean"),
-  units=c("°C", "mm", "°C", "°C",  "mm", "mm", "days", "", "" , "" )
+  units=c("°C", "mm/day", "°C", "°C",  "mm", "mm", "days", "", "" , "" )
 )
 
 vars_corr_cont<-data.frame(
   varns=c('diff_TM','diff_RR', "diff_TVAR", "diff_HW", "diff_RX", "diff_PEXT", "diff_WD", "diff_SPI", "diff_SPEI", "diff_PET"),
   ext_names=c("Mean temp.", "Total precip.","Temp. variability","Heat waves","Max 5 days cum. rain","Extr. rainy days", "Wet days",   "Droughts (SPI)", "Droughts (SPEI)",  "PET"),
   modns=c('TM','RR', "TVAR", "HW", "RX", "PEXT", "WD", "SPI", "SPEI", "PET"),
-  units=c("°C", "mm", "°C", "°C",  "mm", "mm", "days", "", "" , "" )
+  units=c("°C", "mm/day", "°C", "°C",  "mm", "mm", "days", "", "" , "" )
 )
 
-save_model<-function(m, pattern, o, type, spec, NL, out_dir){
+save_model<-function(m, pattern, o, type, spec, NL, o_dir){
   # save 
   coefs=m$coefficients[!grepl(pattern, names(m$coefficients))]
   r2=r2(m,type='r2')
@@ -277,21 +279,23 @@ save_model<-function(m, pattern, o, type, spec, NL, out_dir){
   
   tab=rbind(r2,ar2,wr2,BIC,AIC,coeftable(m)[!grepl(pattern, row.names(coeftable(m))), ] )
   
-  write.csv(tab, file= file.path(out_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_coeftab.csv')))
-  write.csv(coefs, file= file.path(out_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_coef.csv')))
-  write.csv(cov, file=file.path(out_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov.csv')))
-  write.csv(cov_iso, file=file.path(out_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov_iso.csv')))
-  write.csv(cov_dk, file=file.path(out_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov_dk.csv')))
+  write.csv(tab, file= file.path(o_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_coeftab.csv')))
+  write.csv(coefs, file= file.path(o_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_coef.csv')))
+  write.csv(cov, file=file.path(o_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov.csv')))
+  write.csv(cov_iso, file=file.path(o_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov_iso.csv')))
+  write.csv(cov_dk, file=file.path(o_dir,paste0(o, '_',type, '_',spec, "_lagN", NL,'_cov_dk.csv')))
   
   return(list(tab, coefs, cov))
 }
 
-#####################
+
+################################################################################
+###########################################################################
 
 
 ### put all extr together, check again consistency among different schemes of mod
 
-out_dir_final<-file.path(out_dir, "conservative_N_lags_mix")
+out_dir_final<-file.path(out_dir, "cons_N_lags_mix")
 if(!dir.exists(out_dir_final)){dir.create(out_dir_final)}
 
 out_dir_final_plots<-file.path(out_dir_final,"shocks_figures")
@@ -303,16 +307,17 @@ if(!dir.exists(out_dir_final_plots)){dir.create(out_dir_final_plots)}
 
 # n lags tp selected before
 N_temp_eys<-7
-N_rain_eys<-7
-N_temp_leb<-5
+N_rain_eys<-2
+N_temp_leb<-1
 N_rain_leb<-5
 N_temp_gnipc<-8
-N_rain_gnipc<-8
+N_rain_gnipc<-0
 
 
 ### use n mixture selected conservatively 
 N="_mix_"
 n<-N
+data_temp<-data
 
 for (spec in specs){
   
@@ -364,14 +369,14 @@ for (spec in specs){
   
   
   extr_formula<- paste0(c(wd_formula, 
-                          pext_formula,
-                          rx_formula, 
+                          
                           tvar_formula),
                         collapse = "+")
   
-  extr_formula_small<-paste0(c(wd_formula, 
-                               pext_formula, tvar_formula),
-                             collapse = "+")
+  extr_formula_big<-paste0(c(wd_formula, 
+                             pext_formula,
+                             rx_formula,  tvar_formula),
+                           collapse = "+")
   models<-list()
   
   
@@ -380,7 +385,7 @@ for (spec in specs){
   r=paste0(extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -394,7 +399,7 @@ for (spec in specs){
            extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -402,11 +407,11 @@ for (spec in specs){
   plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
   
   ### all extr reduced version
-  type<-"all_extr_small"
-  r=paste0(extr_formula_small
+  type<-"all_extr_big"
+  r=paste0(extr_formula_big
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -415,12 +420,12 @@ for (spec in specs){
   
   
   ### all extr + tp reduced version
-  type<-"all_extr_small_tp"
+  type<-"all_extr_big_tp"
   r=paste0(mean_cl_formula,"+", 
-           extr_formula_small
+           extr_formula_big
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -438,7 +443,7 @@ for (spec in specs){
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -449,11 +454,44 @@ for (spec in specs){
   r=paste0(mean_cl_formula,"+", 
            extr_formula, "+",
            # ar
-           paste0("l(",o, ", 1:6) + l(gr_gnipc, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
+           paste0("l(",o, ", 1:6) + l(gr_gnipc, 0:6)+l(gr_leb, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  
+  
+  ### all extr small, + controls
+  type<-"all_extr_big_tp_ar"
+  r=paste0(mean_cl_formula,"+", 
+           extr_formula_big, "+",
+           # ar
+           paste0("l(",o, ", 1:6)  ")
+  )
+  
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  type<-"all_extr_big_tp_ar_controls"
+  r=paste0(mean_cl_formula,"+", 
+           extr_formula_big, "+",
+           # ar
+           paste0("l(",o, ", 1:6) + l(gr_gnipc, 0:6)+l(gr_leb, 0:6)+  l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
+  )
+  
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -464,7 +502,7 @@ for (spec in specs){
   r=paste0(mean_cl_formula,"+", 
            extr_formula, "+",
            # contr
-           "l(gr_gnipc, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
+           "l(gr_gnipc, 0:6)+l(gr_leb, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
@@ -474,61 +512,12 @@ for (spec in specs){
   save_model(m, pattern, o, type, spec, N, out_dir_final)
   plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
   plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
-  
-  
-  
-  ### all extr small, + controls
-  type<-"all_extr_small_tp_ar"
-  r=paste0(mean_cl_formula,"+", 
-           extr_formula_small, "+",
-           # ar
-           paste0("l(",o, ", 1:6)  ")
-  )
-  
-  f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
-  models[[length(models)+1]]<-m
-  # save 
-  save_model(m, pattern, o, type, spec, N, out_dir_final)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
-  
-  type<-"all_extr_small_tp_ar_controls"
-  r=paste0(mean_cl_formula,"+", 
-           extr_formula_small, "+",
-           # ar
-           paste0("l(",o, ", 1:6) + l(gr_gnipc, 0:6)+l(gr_leb, 0:6)+  l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
-  )
-  
-  f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
-  models[[length(models)+1]]<-m
-  # save 
-  save_model(m, pattern, o, type, spec, N, out_dir_final)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
-  
-  type<-"all_extr_small_tp_controls"
-  r=paste0(mean_cl_formula,"+", 
-           extr_formula, "+",
-           # contr
-           "l(gr_gnipc, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
-  )
-  
-  f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
-  models[[length(models)+1]]<-m
-  # save 
-  save_model(m, pattern, o, type, spec, N, out_dir_final)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
-  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
-  
   
   
   
   #### save tables
   modelsummary(models, estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models.html")))
-  modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
+  # modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
   modelsummary(models, vcov=lapply(models, FUN=fvcov_iso), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_",spec ,"_lagN", n, "_models_iso.html")))
   
   
@@ -554,21 +543,20 @@ for (spec in specs){
                      paste0(m_modns[v_hw], "_i_", varns[v_hw]),"+", 
                      paste0("lag_",1:1,"_",varns[v_hw], collapse = "+"),"+", 
                      paste0("lag_",1:1,"_",m_modns[v_hw],'_i_',varns[v_hw], collapse = "+"))
-  rx_formula<-paste0(paste0(varns[v_rx]), "+",
-                     paste0(m_modns[v_temp], "_i_", varns[v_rx]),"+", 
-                     paste0("lag_",1:5,"_",varns[v_rx], collapse = "+"),"+", 
-                     paste0("lag_",1:5,"_",m_modns[v_temp],'_i_',varns[v_rx], collapse = "+"))
+  hw_formula<-paste0(paste0(varns[v_hw]), "+",
+                     paste0(m_modns[v_hw], "_i_", varns[v_hw]))
   tvar_formula<-paste0(paste0(varns[v_tvar]), "+",
                        paste0(m_modns[v_tvar], "_i_", varns[v_tvar]),"+", 
                        paste0("lag_",1:1,"_",varns[v_tvar], collapse = "+"),"+", 
                        paste0("lag_",1:1,"_",m_modns[v_tvar],'_i_',varns[v_tvar], collapse = "+"))
+  tvar_formula<-paste0(paste0(varns[v_tvar]), "+",
+                       paste0(m_modns[v_tvar], "_i_", varns[v_tvar]))
   wd_formula<-paste0(paste0(varns[v_wd]), "+",
                      paste0(m_modns[v_temp], "_i_", varns[v_wd]),"+", 
                      paste0("lag_",1:3,"_",varns[v_wd], collapse = "+"),"+", 
                      paste0("lag_",1:3,"_",m_modns[v_temp],'_i_',varns[v_wd], collapse = "+"))
   
   extr_formula<- paste0(c(hw_formula, 
-                          rx_formula,
                           tvar_formula, 
                           wd_formula),
                         collapse = "+")
@@ -582,7 +570,7 @@ for (spec in specs){
   r=paste0(extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -596,7 +584,7 @@ for (spec in specs){
            extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -615,7 +603,7 @@ for (spec in specs){
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -630,7 +618,7 @@ for (spec in specs){
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -641,7 +629,7 @@ for (spec in specs){
   r=paste0(mean_cl_formula,"+", 
            extr_formula, "+",
            # contr
-           "l(gr_gnipc, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
+           "l(gr_gnipc, 0:6)+  l(gr_eys, 0:6)+l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
@@ -655,7 +643,7 @@ for (spec in specs){
   
   #### save tables
   modelsummary(models, estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models.html")))
-  modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
+  # modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
   modelsummary(models, vcov=lapply(models, FUN=fvcov_iso), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_",spec ,"_lagN", n, "_models_iso.html")))
   
   
@@ -671,32 +659,29 @@ for (spec in specs){
                           paste0(m_modns[v_temp], "_i_", varns[v_temp]), "+",
                           paste0(m_modns[v_rain], "_i_", varns[v_rain]), "+",
                           paste0("lag_",1:N_temp,"_",varns[v_temp], collapse = "+"),"+", 
-                          paste0("lag_",1:N_temp,"_",m_modns[v_temp],'_i_',varns[v_temp], collapse = "+"),"+", 
-                          paste0("lag_",1:N_rain,"_",varns[v_rain], collapse = "+"),"+", 
-                          paste0("lag_",1:N_rain,"_",m_modns[v_rain],'_i_',varns[v_rain], collapse = "+"))
+                          paste0("lag_",1:N_temp,"_",m_modns[v_temp],'_i_',varns[v_temp], collapse = "+"))
   
   
   
+  wd_formula<-paste0(paste0(varns[v_wd]), "+",
+                     paste0(m_modns[v_rain], "_i_", varns[v_wd]),"+", 
+                     paste0("lag_",1:9,"_",varns[v_wd], collapse = "+"),"+", 
+                     paste0("lag_",1:9,"_",m_modns[v_rain],'_i_',varns[v_wd], collapse = "+"))
   hw_formula<-paste0(paste0(varns[v_hw]), "+",
                      paste0(m_modns[v_temp], "_i_", varns[v_hw]),"+", 
                      paste0("lag_",1:7,"_",varns[v_hw], collapse = "+"),"+", 
                      paste0("lag_",1:7,"_",m_modns[v_temp],'_i_',varns[v_hw], collapse = "+"))
-  wd_formula<-paste0(paste0(varns[v_wd]), "+",
-                     paste0(m_modns[v_rain], "_i_", varns[v_wd]),"+", 
-                     paste0("lag_",1:6,"_",varns[v_wd], collapse = "+"),"+", 
-                     paste0("lag_",1:6,"_",m_modns[v_rain],'_i_',varns[v_wd], collapse = "+"))
-  pext_formula<-paste0(paste0(varns[v_pext]), "+",
-                       paste0(m_modns[v_temp], "_i_", varns[v_pext]),"+", 
-                       paste0("lag_",1:2,"_",varns[v_pext], collapse = "+"),"+", 
-                       paste0("lag_",1:2,"_",m_modns[v_temp],'_i_',varns[v_pext], collapse = "+"))
-  rx_formula<-paste0(paste0(varns[v_rx]), "+",
-                     paste0(m_modns[v_temp], "_i_", varns[v_rx]),"+", 
-                     paste0("lag_",1:8,"_",varns[v_rx], collapse = "+"),"+", 
-                     paste0("lag_",1:8,"_",m_modns[v_temp],'_i_',varns[v_rx], collapse = "+"))
+  tvar_formula<-paste0(paste0(varns[v_tvar]), "+",
+                       paste0(m_modns[v_temp], "_i_", varns[v_tvar]),"+", 
+                       paste0("lag_",1:6,"_",varns[v_tvar], collapse = "+"),"+", 
+                       paste0("lag_",1:6,"_",m_modns[v_temp],'_i_',varns[v_tvar], collapse = "+"))
   
-  extr_formula<- paste0(c(hw_formula, 
-                          wd_formula, 
-                          pext_formula),
+  extr_formula_big<- paste0(c(hw_formula, 
+                              wd_formula, 
+                              tvar_formula),
+                            collapse = "+")
+  extr_formula<- paste0(c(wd_formula, 
+                          tvar_formula),
                         collapse = "+")
   
   models<-list()
@@ -708,7 +693,7 @@ for (spec in specs){
   r=paste0(extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -722,7 +707,33 @@ for (spec in specs){
            extr_formula
   )
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  ### all extr reduced version
+  type<-"all_extr_big"
+  r=paste0(extr_formula_big
+  )
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  
+  ### all extr + tp reduced version
+  type<-"all_extr_big_tp"
+  r=paste0(mean_cl_formula,"+", 
+           extr_formula_big
+  )
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -740,7 +751,7 @@ for (spec in specs){
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -751,11 +762,44 @@ for (spec in specs){
   r=paste0(mean_cl_formula,"+", 
            extr_formula, "+",
            # ar
-           paste0("l(",o, ", 1:6) +l(gr_eys, 0:6)+l(gr_leb, 0:6)+  l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
+           paste0("l(",o, ", 1:6) +l(gr_leb, 0:6)+ l(gr_eys, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
-  m = fixest::feols(f, data , panel.id = pan_id)
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  
+  
+  ### all extr small, + controls
+  type<-"all_extr_big_tp_ar"
+  r=paste0(mean_cl_formula,"+", 
+           extr_formula_big, "+",
+           # ar
+           paste0("l(",o, ", 1:6)  ")
+  )
+  
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
+  models[[length(models)+1]]<-m
+  # save 
+  save_model(m, pattern, o, type, spec, N, out_dir_final)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N)
+  plot_lags(out_dir_final , vars_correspondaces, out_dir_final_plots, o, type, spec, N, se="iso")
+  
+  type<-"all_extr_big_tp_ar_controls"
+  r=paste0(mean_cl_formula,"+", 
+           extr_formula_big, "+",
+           # ar
+           paste0("l(",o, ", 1:6) +l(gr_leb, 0:6)+ l(gr_eys, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)")
+  )
+  
+  f= as.formula(paste( o, "~", r, "|" ,i ))
+  m = fixest::feols(f, data_temp , panel.id = pan_id)
   models[[length(models)+1]]<-m
   # save 
   save_model(m, pattern, o, type, spec, N, out_dir_final)
@@ -766,7 +810,7 @@ for (spec in specs){
   r=paste0(mean_cl_formula,"+", 
            extr_formula, "+",
            # contr
-           "l(gr_gnipc, 0:6)+ l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
+           "l(gr_leb, 0:6)+ l(gr_eys, 0:6)+l(conflict, 0:6) + l(exp_health, 0:6) + l(trade, 0:6) + l(exp_edu, 0:6)"
   )
   
   f= as.formula(paste( o, "~", r, "|" ,i ))
@@ -779,10 +823,12 @@ for (spec in specs){
   
   
   
+  
   #### save tables
   modelsummary(models, estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models.html")))
-  modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
+  # modelsummary(models, vcov=lapply(models, FUN=fvcov_dk), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_", spec ,"_lagN", n, "_models_dk.html")))
   modelsummary(models, vcov=lapply(models, FUN=fvcov_iso), estimate = "{estimate}{stars}", statistic = NULL, gof_omit = c("Std.Errors"), fmt = fmt_sprintf("%.5e"), output=file.path(out_dir_final, paste0(o, "_",spec ,"_lagN", n, "_models_iso.html")))
+  
   
   
 }

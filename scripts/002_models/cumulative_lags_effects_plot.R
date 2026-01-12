@@ -9,8 +9,8 @@ library(ggplot2)
 source("scripts/003_models/feols_lags_plot_funcs.R")
 
 spec<-"mean_mod"
-type="all_extr_tp"
-NL<-"_mix_"
+type="all_vars_pdlm"
+NL<-"mix"
 
 ################################################################################
 
@@ -204,8 +204,6 @@ data<-data%>%filter(year>=1990 & year<=2019)
 
 compute_cum_effect <- function(coefs, climate_var, mod_var, cov_rob, cov_iso, mean_ref) {
   
-  
-  
   # Load precomputed coefficients and variance-covariance matrix
   full <- coefs$variable
   no_int<-full[!grepl("_i_", full)]
@@ -352,23 +350,119 @@ for (o in out_variables){
 ################################################################################
 # plot in squared box, cumulative values only where significant 
 
+################################################################################
+# === 1. Prepare data labels ===
 
-plot_data$var_name<-NA
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_TM" )]<-"diff_TM"
-plot_data$var_name[which(plot_data$ClimateVar=="RR_mean_i_diff_RR" )]<-"diff_RR"
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_HW" )]<-"diff_HW"
-plot_data$var_name[which(plot_data$ClimateVar=="RR_mean_i_diff_WD" )]<-"diff_WD"
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_PEXT" )]<-"diff_PEXT"
-plot_data$var_name[which(plot_data$ClimateVar=="HW_mean_i_diff_HW" )]<-"diff_HW"
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_RX" )]<-"diff_RX"
-plot_data$var_name[which(plot_data$ClimateVar=="TVAR_mean_i_diff_TVAR" )]<-"diff_TVAR"
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_WD" )]<-"diff_WD"
-plot_data$var_name[which(plot_data$ClimateVar=="WD_mean_i_diff_WD" )]<-"diff_WD"
-plot_data$var_name[which(plot_data$ClimateVar=="TM_mean_i_diff_TVAR" )]<-"diff_TVAR"
 
-variable_order<-c("diff_TM", "diff_RR","diff_HW", "diff_TVAR",
-                  "diff_WD","diff_PEXT" ,"diff_RX"
+plot_data$var_name <- NA
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_TM"]   <- "Mean Temp."
+plot_data$var_name[plot_data$ClimateVar=="RR_mean_i_diff_RR"]   <- "Total Rainfall"
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_HW"]   <- "Heatwaves"
+plot_data$var_name[plot_data$ClimateVar=="RR_mean_i_diff_WD"]   <- "Wet Days"
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_PEXT"] <- "Extreme Precip."
+plot_data$var_name[plot_data$ClimateVar=="HW_mean_i_diff_HW"]   <- "Heatwaves"
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_RX"]   <- "Max 5-day Rain"
+plot_data$var_name[plot_data$ClimateVar=="TVAR_mean_i_diff_TVAR"] <- "Daily Temp. Var."
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_WD"]   <- "Wet Days"
+plot_data$var_name[plot_data$ClimateVar=="WD_mean_i_diff_WD"]   <- "Wet Days"
+plot_data$var_name[plot_data$ClimateVar=="TM_mean_i_diff_TVAR"] <- "Daily Temp. Var."
+
+plot_data$ref <- factor(plot_data$ref,
+                        levels = c("q25", "med", "q75"),
+                        labels = c("Dry / Cold", "Average", "Wet / Hot"))
+
+################################################################################
+# 2. Convert LEB & EYS from % to absolute changes (years)
+
+# These are rough global averages; replace with your sample means if available:
+mean_leb <- 73     # years
+mean_eys <- 8.7   # years of schooling
+
+plot_data <- plot_data %>%
+  mutate(
+    CumEffect_adj = case_when(
+      Response == "gr_leb" ~ (CumEffect / 100) * mean_leb,
+      Response == "gr_eys" ~ (CumEffect / 100) * mean_eys,
+      TRUE ~ CumEffect
+    ),
+    Effect_unit = case_when(
+      Response == "gr_gnipc" ~ "Effect (%)",
+      Response == "gr_leb" ~ "Effect (years)",
+      Response == "gr_eys" ~ "Effect (years)"
+    )
+  )
+
+################################################################################
+# 3. Plotting function (no error bars)
+
+make_cum_plot <- function(df, response_name, title_label) {
+  ggplot(df %>% filter(Response == response_name),
+         aes(x = fct_reorder(var_name, CumEffect_adj), y = ref)) +
+    geom_tile(aes(fill = CumEffect_adj), color = "black", height = 0.6, width = 0.9) +
+    scale_fill_gradient2(
+      low = "red3", mid = "white", high = "blue3", midpoint = 0,
+      name = unique(df$Effect_unit[df$Response == response_name])
+    ) +
+    theme_bw(base_size = 13) +
+    labs(
+      x = "Climate Variable",
+      y = "Climatic Condition",
+      title = title_label
+      # subtitle = "Cumulative distributed-lag effect under different climatic regimes"
+    ) +
+    theme(
+      axis.text.x = element_text(angle = 45, hjust = 1),
+      panel.grid = element_blank(),
+      plot.title = element_text(face = "bold")
+    )
+}
+
+################################################################################
+# 4. Create plots per outcome
+
+vars_gnipc <- c("Mean Temp.", "Wet Days", "Daily Temp. Var.", "Heatwaves")
+vars_leb   <- c("Heatwaves", "Wet Days", "Daily Temp. Var.")
+vars_eys   <- c("Wet Days", "Daily Temp. Var.")
+
+p1 <- make_cum_plot(
+  plot_data %>% filter(var_name %in% vars_gnipc),
+  "gr_gnipc",
+  "Effect on GDP per Capita Growth (%)"
 )
+
+p2 <- make_cum_plot(
+  plot_data %>% filter(var_name %in% vars_leb),
+  "gr_leb",
+  "Effect on Life Expectancy \n(years, on a population average of 72)"
+)
+
+p3 <- make_cum_plot(
+  plot_data %>% filter(var_name %in% vars_eys),
+  "gr_eys",
+  "Effect on Expected Years of Schooling \n(years, on a population average of 8.7)"
+)
+
+################################################################################
+# 5. Combine 
+
+library(patchwork)
+library(forcats)
+final_plot <- p1 + theme(axis.title.x = element_blank() )+
+  p2 + theme(axis.title.y = element_blank() )+
+  p3 + theme(axis.title.y = element_blank() ,axis.title.x = element_blank() )+
+  plot_annotation(
+    title = "Cumulative Distributed-Lag Effects of one SD Shock of Climate Variables under Different Conditions",
+    subtitle = "Dry/Cold, Average, and Wet/Hot correspond to 25th, 50th, and 75th percentile climatic regimes",
+    theme = theme(plot.title = element_text(size = 15, face = "bold"))
+  )
+
+ggsave(file.path(out_dir, paste0("final_cumulative_effects_plot_abs.png")), final_plot, width = 18, height = 6)
+final_plot
+
+
+
+
+
 
 plot_data$CI_Lower<-NULL
 plot_data$CI_Upper<-NULL
@@ -413,6 +507,68 @@ ggplot(data_long, aes(x = var_name, y = Response)) +
   scale_fill_steps2()
 
 ggsave(file.path(out_dir, paste0("cumulative_lag_effects_simple_", type,'_',spec, ".png")), width = 7, height=4)
+
+
+
+
+
+
+
+
+
+avg_vals <- c(leb = 70, eys = 10)
+data_long <- data_long %>%
+  mutate(
+    abs_med = ifelse(Response %in% names(avg_vals),
+                     med/100 * avg_vals[Response], NA),
+    abs_q25 = ifelse(Response %in% names(avg_vals),
+                     q25/100 * avg_vals[Response], NA),
+    abs_q75 = ifelse(Response %in% names(avg_vals),
+                     q75/100 * avg_vals[Response], NA)
+  )
+library(ggplot2)
+library(dplyr)
+
+# ensure the order of variables
+data_long <- data_long %>%
+  mutate(var_name = factor(var_name,
+                           levels = unique(var_name)))
+
+# custom label for y-axis per outcome
+label_map <- c(
+  gnipc = "GDP per capita growth (%)",
+  leb   = "Life expectancy at birth (%)",
+  eys   = "Expected years of schooling (%)"
+)
+
+# loop over each Response
+plots <- lapply(unique(data_long$Response), function(resp) {
+  d <- data_long %>% filter(Response == resp)
+  
+  ggplot(d, aes(x = med, y = var_name)) +
+    geom_vline(xintercept = 0, color = "gray60", linetype = "dashed") +
+    geom_errorbarh(aes(xmin = q25, xmax = q75),
+                   height = 0.25, color = "gray40") +
+    geom_point(aes(color = med), size = 4) +
+    scale_color_gradient2(low = "red3", mid = "white", high = "blue3",
+                          midpoint = 0, name = "Effect (%)") +
+    theme_bw(base_size = 13) +
+    labs(
+      x = label_map[resp],
+      y = "Climate variable",
+      title = paste0("Effect of climate on ", label_map[resp])
+    ) +
+    theme(
+      panel.grid.minor = element_blank(),
+      axis.text.x = element_text(size = 10),
+      axis.text.y = element_text(size = 11)
+    )
+})
+
+# if you have patchwork
+library(patchwork)
+final_plot <- wrap_plots(plots, ncol = 1)
+final_plot
 
 
 

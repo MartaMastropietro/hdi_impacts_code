@@ -435,7 +435,7 @@ for (spec in specs){
 
 
 out_dir_oaat<-file.path(out_dir, "oaat_add")
-if(!dir.exists(out_dir)){dir.create(out_dir)}
+if(!dir.exists(out_dir_oaat)){dir.create(out_dir_oaat)}
 
 out_dir_oaat_plots<-file.path(out_dir_oaat,"shocks_figures")
 if(!dir.exists(out_dir_oaat_plots)){dir.create(out_dir_oaat_plots)}

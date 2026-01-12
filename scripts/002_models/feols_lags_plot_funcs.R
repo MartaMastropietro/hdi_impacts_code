@@ -257,31 +257,55 @@ plot_response <- function(o, se, type , varns, varnlabels, mods, modns, MEs, err
     # legend_labels <- paste0(labels," ", unit[v], " (Cum. Eff.: ", round(cum_ME_values, 3), ")")
     legend_labels<-paste0(labels," ", unit[v])
     
-    # Modify the plot
-    p <- ggplot(data, aes(x = Lag, y = ME, color = as.factor(Quantile), fill = as.factor(Quantile))) +
-      geom_line(aes(group = Quantile), size = 0.8) +
-      geom_point(aes(group = Quantile), size = 2) +
-      geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.3, linetype = 0) +
-      scale_color_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
-      scale_fill_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
-      labs(
-        x = "Lag (year)",
-        y = paste("Effect per", margunit[v], "increase\n", efunit),
-        title = varnlabels[v]
-      ) +
-      theme_minimal(base_size = 20) +
-      theme(
-        legend.position = "top",
-        legend.title = element_blank(),
-        plot.title = element_text(size = 22, face = "bold"),
-        axis.title.x = element_text(size = 20),
-        axis.title.y = element_text(size = 20),
-        axis.text = element_text(size = 20),
-        legend.text = element_text(size = 20)
-      ) +
-      geom_hline(yintercept = 0, linetype = "dashed", color = "black")
-    
-    
+    if(sum(data$Lag)==0){
+      # Modify the plot
+      p <- ggplot(data, aes(x = Lag, y = ME, color = as.factor(Quantile), fill = as.factor(Quantile))) +
+        geom_point( size = 2) +
+        geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.1, size=2) +
+        scale_color_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
+        scale_fill_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
+        labs(
+          x = "Lag (year)",
+          y = paste("Effect per", margunit[v], "increase\n", efunit),
+          title = varnlabels[v]
+        ) +
+        theme_minimal(base_size = 20) +
+        theme(
+          legend.position = "top",
+          legend.title = element_blank(),
+          plot.title = element_text(size = 22, face = "bold"),
+          axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 20),
+          axis.text = element_text(size = 20),
+          legend.text = element_text(size = 20)
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+      
+    }else{
+      # Modify the plot
+      p <- ggplot(data, aes(x = Lag, y = ME, color = as.factor(Quantile), fill = as.factor(Quantile))) +
+        geom_line(aes(group = Quantile), size = 0.8) +
+        geom_point(aes(group = Quantile), size = 2) +
+        geom_ribbon(aes(ymin = Lower, ymax = Upper), alpha = 0.3, linetype = 0) +
+        scale_color_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
+        scale_fill_manual(values = cols[1:length(quantile_labels)], labels = legend_labels) +
+        labs(
+          x = "Lag (year)",
+          y = paste("Effect per", margunit[v], "increase\n", efunit),
+          title = varnlabels[v]
+        ) +
+        theme_minimal(base_size = 20) +
+        theme(
+          legend.position = "top",
+          legend.title = element_blank(),
+          plot.title = element_text(size = 22, face = "bold"),
+          axis.title.x = element_text(size = 20),
+          axis.title.y = element_text(size = 20),
+          axis.text = element_text(size = 20),
+          legend.text = element_text(size = 20)
+        ) +
+        geom_hline(yintercept = 0, linetype = "dashed", color = "black")
+    }
     
     # Add plot to list
     plots[[v]] <- p
