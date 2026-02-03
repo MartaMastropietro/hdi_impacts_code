@@ -3,37 +3,6 @@ Code for reproducing the work "Past and Projected Climate Impacts on Human Devel
 
 R version 4.4.3
 
-The following packages are used:
-Package       Version   
-arrow         "21.0.0.1"
-broom         "1.0.10"  
-car           "3.1-3"   
-clubSandwich  "0.6.1"   
-data.table    "1.17.8"  
-dplyr         "1.1.4"   
-exactextractr "0.10.0"  
-fixest        "0.12.1"  
-ggplot2       "4.0.0"   
-gsubfn        "0.7"     
-margins       "0.3.28"  
-modelsummary  "2.5.0"   
-ncdf4         "1.24"    
-plm           "2.6-6"   
-progress      "1.2.3"   
-raster        "3.6-32"  
-readr         "2.1.5"   
-readxl        "1.4.5"   
-REdaS         "0.9.4"   
-reshape       "0.8.10"  
-reshape2      "1.4.4"   
-sf            "1.0-21"  
-sp            "2.2-0"   
-stargazer     "5.2.3"   
-terra         "1.8-70"  
-tidyr         "1.3.1"   
-tidyverse     "2.0.0"   
-lattice       "0.22-6"  
-
 To obtain the results and images in the paper, one should run all scripts in the "scripts" folder in order:
 - 001_data_prep
 - 002_models
