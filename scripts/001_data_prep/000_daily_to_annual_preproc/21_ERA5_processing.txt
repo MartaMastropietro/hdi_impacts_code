@@ -1,0 +1,622 @@
+#######################################################################################
+### 2024 ##############################################################################
+#######################################################################################
+### HEAT AND COLD WAVES (WEATHER EXTREMES AND HEALTH) #################################
+### METEOROLOGICAL DROUGHTS (HYDROLOGY AND CLIMATE HAZARDS) ###########################
+### EXTREME RAINFALL (WEATHER EXTREMES) ###############################################
+### CLIMATE ANNUAL AND MONTHLY VALUES (TEMP-PREC) #####################################
+### SNOWFALL EXTREMES AND REGIMES (WEATHER AND CLIMATE) ###############################
+### KOTZ-WAIDELICH (SET OF 5 BASIC INDICATORS) ########################################
+#######################################################################################
+### OUTPUTS ARE ANNUAL AND MONTHLY ####################################################
+#######################################################################################
+res <- 2  ## Spatial resolution (1 for 0.25° native, 2 for 0.5° aggregated by CDS)
+#######################################################################################
+### TEST - ONE GRID POINT
+# if (res == 1) xix <- 759  ## LON
+# if (res == 1) yiy <- 542  ## LAT
+# if (res == 2) xix <- 379  ## LON
+# if (res == 2) yiy <- 271  ## LAT
+#######################################################################################
+
+#######################################################################################
+### GENERAL SETTINGS ##################################################################
+#######################################################################################
+### Basic settings ####################################################################
+require(ncdf4)        ## To open and write ncdf files
+require(SPEI)         ## To compute PET and drought indicators
+require(raster)       ## To open and read the country mask (to skip sea points) 
+memory.limit(999999)  ## Push memory to the limit (no longer supported)
+if (res == 1) setwd("E:/ERA5_025_DD/")  ## Directory with data
+if (res == 2) setwd("E:/ERA5_05_DD/")   ## Directory with data
+### Main features and constants #######################################################
+if (res == 1) nlon <- 1440
+if (res == 2) nlon <-  720  ## Longitude grid points
+if (res == 1) nlat <-  721
+if (res == 2) nlat <-  361  ## Latitude grid points
+conv <-  -273.15  ## °K to °C
+rain <- 24000     ## m/hr to mm/day (and cm/day for snow)
+nyy  <- 74        ## Years in 1950-2023
+yp   <- 30        ## Years in 1981-2010 for percentiles
+nm   <- 12        ## Months in a year
+nmx  <- 15        ## Months in year + 3m next year (HW,CW,SNX monthly outputs)
+nmt  <- nm*nyy    ## Total number of months
+nd   <- 365       ## 365 days in a year unlsess clearly specified (leap years)
+ds   <- 183       ## Days in a 6-month season
+asd  <- 0         ## Troll pointer to avoid errors
+### Features spcific to some hazards ##################################################
+acc <- 6           ## Accumulation: 6-month (Spi or Spei - Drought)
+ri  <- c(1951, 1)  ## Baseline: starting month (Spi or Spei - Drought)
+rf  <- c(2010,12)  ## Baseline: ending month (Spi or Spei - Drought)
+rst <- c(1950, 1)  ## First month of data (Spi or Spei - Drought)
+distr <- c("Gamma","log-Logistic")  ## Statistical distribution for Spi and Spei
+#######################################################################################
+### File-names (inputs) ###############################################################
+AA  <- "era5_"
+BB  <- c("025_","05_")
+CC  <- c("total_precipitation_daily_mean_","2m_temperature_daily_minimum_",
+         "2m_temperature_daily_maximum_","snowfall_daily_mean_")
+DD  <- c("_01","_02","_03","_04","_05","_06","_07","_08","_09","_10","_11","_12")
+VAR <- c("tp","t2m","t2m","sf") ## Unit is °K,°K, m/day, m/day
+### Outputs ###########################################################################
+ZZ1  <- array("xxx",c(14))  ## Types of events/hazards
+ZZ2  <- array("xxx",c( 6))  ## Record events only
+varv <- array("xxx",c(14))  ## Variable description for ncdf outputs (unit)
+#######################################################################################
+### HEATWAVES AND COLDWAVES ###########################################################
+# Classic HW (CW): 5+ consecutive days (nights) with TX > 90th (TN < 10th)
+# Additional condition(s): TN should be < 0°C and TX should be > 30°C (except extreme)
+### METEOROLOGICAL DROUGHTS ###########################################################
+# Spi is std precipitation index, Spei is std prec-evapotr index // Accumulation 6-month
+# We derive annual cumulated severity and largest year and month (for two indicators)
+# Output quantities based on events, but on the 12 months or on single months
+MK <- array(0,c(nlon,nlat)) ## Mask to esclude arid and frozen (Met Droughts only)
+# Additional condition: only values <= -0.5 are included in severity and record outputs
+### RAINFALL EXTREMES #################################################################
+# RR5d is the maximum cumulated rainfall over 5 days
+# Additional condition: at least 100mm needed to "count" as 5-day cumulated event
+### CLASSIC CLIMATE VARIABLES #########################################################
+# This part includes annual and monthly common meteorological variables (RR,TN,TM,TX,PET)
+### SNOWFALL EXTREMES #################################################################
+# SN3d is the maximum snowfall over 3 days
+# Additional condition: at least 10cm to "count" as 3-day cumulated event
+### ADDITIONAL KOTZ-WAIDELICH INDICATORS ##############################################
+# TM (avg) and RR (sum) are part of Classic Climate Variables
+# Here we compute Daily Temperature Variability, Number of Wet Days (>1mm), Extreme Rainfall Parameter
+#######################################################################################
+# NAMES FOR FILES AND VARIABLES (OUTUTS)
+ZZ1[1:14]  <- c("CW_","HW_","SPI_","SPEI_","RX_","SNX_","RR_","TN_","TM_","TX_","PET_","TVAR_","WD_","PEXT_")
+varv[1:14] <- c("degC","degC","spi_val","spei_val","mm","cm","mm","degC","degC","degC","mm","degC","days","mm")
+vary <- "annual"
+ZZ2  <- "REC_" 
+varm <- "monthly"
+varr <- "largest"
+#######################################################################################
+#######################################################################################
+### Dimensions ########################################################################
+# Set dimensions of the output ncdf files (once is enough) - All outputs are at annual timescale
+dim1  <- ncdim_def("x","row",1:nlon,longname="x_rows")  ## Lon-based
+dim2  <- ncdim_def("y","col",1:nlat,longname="y_cols")  ## Lat-based
+dim3m <- ncdim_def("time","month",1:nmx,unlim=TRUE)  ## 12m+3m
+dim3d <- ncdim_def("time","month",1:nm,unlim=TRUE)   ## 12m
+dim3p <- ncdim_def("time","days_in_six_months",1:ds,unlim=TRUE)   
+OutX  <- ncvar_def("lon","degrees_east",list(dim1),NA,longname="Longitude",prec="float")
+OutY  <- ncvar_def("lat","degrees_north",list(dim2),NA,longname="Latitude",prec="float")
+# We allocate Lon-Lat general variables
+LONx <- array(NA,c(nlon))
+LATy <- array(NA,c(nlat))
+#######################################################################################
+### Temporal features (days, months, seasons) #########################################
+MMd <- c(31,28,31,30, 31, 30, 31, 31, 30, 31, 30, 31) ## Number of days per month
+MMi <- c( 1,32,60,91,121,152,182,213,244,274,305,335) ## First day of each month
+#######################################################################################
+#######################################################################################
+### MASK TO SKIP SEA POINTS ###########################################################
+#######################################################################################
+# Country mask used to divide between land and ocean points
+CTR <- c("CTR_025.tif","CTR_05.tif")
+CT  <- as.matrix(raster(CTR[res]))
+CR <- array(NA,c(nlon,nlat))  ## Mask
+# Convert into the lon-lat format of the climate grid
+for (i in 1:nlon) {  ## LOOP 1 - Longitude
+ for (j in 1:nlat) {  ## LOOP 2 - Latitude
+  if (j == 1) CR[i,j] <- CT[nlat-j,i]
+  if (j >  1) CR[i,j] <- CT[1+nlat-j,i]    
+  asd <- 0 }}  ## Close LOOPs 2-1
+rm(CTR,CT)
+gc()
+#######################################################################################
+#######################################################################################
+
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### PERCENTILES - LONG AND COMPLICATED PART (BECAUSE OF LARGE FILES) ##################
+#######################################################################################
+### TN,TX,RR - 10th,90th,99th(then 99.5th) percentile over 1981-2010 ##################
+#######################################################################################
+TT  <- array(NA,c(3,nlon,nlat,nd))  ## Percentiles over 30 years of that day
+ATT <- array(NA,c(2,nlon,nlat,nd))  ## Same as above but for 15-day moving window (TN,TX)
+WST <- array(NA,c(2,nlon,nlat,ds))  ## Same but for 6-month winter (TN), summer (TX)
+PTT <- array(NA,c(nlon,nlat))       ## One single value, the 99.9th (RR)
+
+### SINGLE FILE WITH 30Y OF DAILY DATA FOR EACH POINT #################################
+# Loop over variables (RR,TN,TX)
+for (v in 1:3) { ## LOOP V - Variables (L1)
+# Loop over months - To create a single file with 30 years of daily data for that month
+ for (m in 1:nm) {  ## LOOP M - Months (L2)
+  print(c(v,"Percentiles, month",m))
+  HH <- array(NA,c(nlon,nlat,30*MMd[m]))  ## Daily values (Single month, 30 years)
+# Loop over files - Open, read, and transfer into the single file
+  for (f in 1:yp) {  ## LOOP F - Files (L3)
+   ki <- 1 + (f-1)*MMd[m]  ## Position of the first day (for this month) in the 365 vector (HH)
+   kf <- ki + MMd[m] - 1   ## Position of the last day (for this month)
+   FF <- nc_open(paste0(AA,BB[res],CC[v],1980+f,DD[m],".nc"))
+   QQ <- ncvar_get(FF,VAR[v])
+# Lon-Lat Loops
+   for (i in 1:nlon) {  ## LOOP LX - Longitude (L4)
+    for (j in 1:nlat) {  ## LOOP LY - Latitude (L5)
+# Copy values over land only
+     if (is.na(CR[i,j])) next   
+     if (v == 1) HH[i,j,ki:kf] <- rain*QQ[i,j,1:MMd[m]]    ## We convert rainfall here (in mm/day)
+     if (v >= 2) HH[i,j,ki:kf] <- conv + QQ[i,j,1:MMd[m]]  ## We convert temperature here (in degC)
+     asd <- 0 }} ## Close LOOPs LY-LX (5-4)
+   nc_close(FF)
+   rm(FF,QQ)
+   gc() } ## Close LOOP F (3)
+# Now we have a single file with 30 years of a single month
+
+### DAILY PERCENTILES #################################################################
+# So we have to loop over the days within that month (30 values)
+  for (i in 1:nlon) {  ## LOOP LX2 - Longitude (L3)
+   for (j in 1:nlat) {  ## LOOP LY2 - Latitude (L4)
+    if (is.na(CR[i,j])) next
+# Loop over days (still within the loop on 12 months)
+    for (d in 1:MMd[m]) {  ## LOOP DM - Days within the month (L5)
+     dx <- MMi[m] + d - 1  ## Position of the daily percentile 
+     if (v == 1) TT[v,i,j,dx] <- unname(quantile(HH[i,j,seq(d,d+(29*MMd[m]),by=MMd[m])],0.99,na.rm=TRUE))  ## RR99
+     if (v == 2) TT[v,i,j,dx] <- unname(quantile(HH[i,j,seq(d,d+(29*MMd[m]),by=MMd[m])],0.1 ,na.rm=TRUE))  ## TN10
+     if (v == 3) TT[v,i,j,dx] <- unname(quantile(HH[i,j,seq(d,d+(29*MMd[m]),by=MMd[m])],0.9 ,na.rm=TRUE))  ## TX90     
+     asd <- 0 } }} ## Close LOOP DM-LY2-LX2 (5-4-3)
+# And now we have the percentiles for all days of that month
+  rm(HH)
+  gc() }  ## Close LOOP M (2)
+
+### 15-DAY PERCENTILES ################################################################
+# We loop over days to obtain the 15-day moving window percentiles
+ print(c(v,"15-day percentiles")) 
+ for (i in 1:nlon) {  ## LOOP LX3 - Longitude (L2)
+  for (j in 1:nlat) {  ## LOOP LY3 - Latitude (L3)
+   if (is.na(CR[i,j])) next
+   if (v == 1) PTT[i,j] <- unname(quantile(TT[1,i,j,1:nd],0.995,na.rm=TRUE))  ## RR99 of 99th over any single day
+   if (v >= 2) {  ## If on TN and TX only (L4)
+    for (kk in 1:nd) {  ## LOOP D - Days (for 15-day average; L5)
+     if (kk <= 7) {  ## 01-07 January needs the last days of December (L6)
+      k1 <- nd + kk - 7
+      ATT[v-1,i,j,kk] <- mean(TT[v,i,j,c(k1:nd,1:(kk+7))],na.rm=TRUE)
+     } else if (kk >= 8 & kk <= 358) {  ## 08 January to 24 December  
+      ATT[v-1,i,j,kk] <- mean(TT[v,i,j,c((kk-7):(kk+7))],na.rm=TRUE)
+     } else {  ## 25-31 December need the first days of January     
+      k2 <- kk - nd + 7
+      ATT[v-1,i,j,kk] <- mean(TT[v,i,j,c((kk-7):nd,1:k2)],na.rm=TRUE) } ## Close if (6)
+     asd <- 0 } } }} } ## Close LOOP D (5), if on v >= 2 (4) and LOOPs LY3-LX3-V (3-2-1)
+# Clean memory (percentiles on single day)
+rm(TT)
+gc()
+
+### PERCENTILES OVER SIX MONTHS (TN,TX) ###############################################
+print("Seasonal percentiles")
+for (i in 1:nlon) {  ## LOOP LX4 - Longitude (L1)
+ for (j in 1:nlat) {  ## LOOP LY4 - Latitude (L2)
+  if (is.na(CR[i,j])) next
+  for (kk in 1:nd) {  ## LOOP D2 - Days (To create 6-month winter and summer; L3)
+   if (j >= (0.5*nlat)) {  ## Northern Hemisphere 
+    if (kk >= 274) WST[1,i,j,kk-273] <- ATT[1,i,j,kk]         ## Winter (Oct-Dec)
+    if (kk <=  91) WST[1,i,j,kk+ 92] <- ATT[1,i,j,kk]         ## Winter (Jan-Mar)
+    if (kk %in% c(92:274)) WST[2,i,j,kk-91] <- ATT[2,i,j,kk] } ## Summer (Apr-Oct)
+   if (j < (0.5*nlat)) {  ## Southern Hemisphere 
+    if (kk >= 274) WST[2,i,j,kk-273] <- ATT[2,i,j,kk]         ## Summer (Oct-Dec)
+    if (kk <=  91) WST[2,i,j,kk+ 92] <- ATT[2,i,j,kk]         ## Summer (Jan-Mar)
+    if (kk %in% c(92:274)) WST[1,i,j,kk-91] <- ATT[1,i,j,kk] } ## Winter (Apr-Oct)
+   asd <- 0 }}} ## Close LOOPs D2-LY4-LY4 (3-2-1)
+# Now we have rescaled percentiles according to the 6-month periods for cW and HW
+rm(ATT)
+gc()      
+
+#######################################################################################
+### WRITING (PERCENTILES) #############################################################
+#######################################################################################
+print("Writing Percentiles")
+# Rainfall (One single 99.5th value for 1981-2010)
+OutP1 <- paste0("ERA5_",BB[res],"RR995.nc")
+OutQ1 <- ncvar_def("RRp","mm",list(dim1,dim2),NA,longname="RRp",prec="float")
+OutR1 <- nc_create(OutP1,list(OutQ1,OutX,OutY))
+ncvar_put(OutR1,OutQ1,round(PTT[1:nlon,1:nlat],2))  
+ncvar_put(OutR1,OutX,round(LONx,2))
+ncvar_put(OutR1,OutY,round(LATy,2))
+# Temperature (TN10 and TX90 for 6-month winter and summer)
+OutP2 <- paste0("ERA5_",BB[res],"TN10.nc")
+OutQ2 <- ncvar_def("TNp","degC",list(dim1,dim2,dim3p),NA,longname="TNp",prec="float")
+OutR2 <- nc_create(OutP2,list(OutQ2,OutX,OutY))
+ncvar_put(OutR2,OutQ2,round(WST[1,1:nlon,1:nlat,1:ds],2))  
+ncvar_put(OutR2,OutX,round(LONx,3))
+ncvar_put(OutR2,OutY,round(LATy,2))
+OutP3 <- paste0("ERA5_",BB[res],"TX90.nc")
+OutQ3 <- ncvar_def("TXp","degC",list(dim1,dim2,dim3p),NA,longname="TXp",prec="float")
+OutR3 <- nc_create(OutP3,list(OutQ3,OutX,OutY))
+ncvar_put(OutR3,OutQ3,round(WST[2,1:nlon,1:nlat,1:ds],2))  
+ncvar_put(OutR3,OutX,round(LONx,2))
+ncvar_put(OutR3,OutY,round(LATy,2))
+# Clean
+nc_close(OutR1)
+nc_close(OutR2)
+nc_close(OutR3)
+rm(OutP1,OutP2,OutP3,OutQ1,OutQ2,OutQ3,OutR1,OutR2,OutR3)
+#######################################################################################
+#######################################################################################                                                
+
+#######################################################################################
+### CORE PART - HAZARDS, EXTREMES, PARAMETERS #########################################
+#######################################################################################
+#######################################################################################
+### Additional variables
+OUTr <- array(0,c(6,nlon,nlat))      ## Largest event in 1950-2023
+ZD   <- array(0,c(2,nlon,nlat,nmt))  ## RR and PET monthly series over 1951-2020
+#######################################################################################
+### CORE LOOP OVER YEARS ##############################################################
+#######################################################################################
+for (yy in 1:nyy) {  ## LOOP Y - Years (L1)
+ year <- 1949 + yy
+ print(c("Creating annual file",year))
+### ALL-IN-ONE OUTPUT VARIABLES #######################################################
+# One year by one year to avoid killing memory
+# Six core Hazards - CW, HW, SPI, SPEI, RRX, SNX (Severity, Record)
+# Five core variables - RR, TN, TM, TX, PET (Mean Values)
+# Three special Kotz parameters - Daily T Variability, Wet Days, Extreme Rainfall
+ OUTy <- array(0,c(14,nlon,nlat))     ## Annual 
+ OUTm <- array(0,c(14,nlon,nlat,nmx)) ## Monthly (Year + 3m next year for HW,CW,SNX)
+#######################################################################################
+# We need to create vectors to contain an entire year of data
+ XX <- array(NA,c(4,nlon,nlat,nd+90)) ## 12m for RR, 12+3m for TN,TX,SN
+# We now loop on 12+3 months to create the annual vectors
+ for (m in 1:nm) {  ## LOOP M - Files = Months (L2) 
+  pp <- m + nm*(yy-1)     ## Month in the 1950-2023 vectors for droughts (ZD)
+  ii  <- MMi[m]           ## First day ot the month in this loop (current year)
+  iif <- ii + MMd[m] - 1  ## Last day of the month in this loop (current year)
+  iix <- nd + ii          ## First day (month of the next year)
+  ifx <- nd + iif         ## Last day (month of the next year)
+## RR (CURRENT YEAR ONLY) 
+  AA1 <- nc_open(paste0(AA,BB[res],CC[1],year,DD[m],".nc"))  ## RR (m/day) 
+  RR <- ncvar_get(AA1,VAR[1])
+## TN and TX (CURRENT YEAR AND NEXT THREE MONTHS)
+  AA2 <- nc_open(paste0(AA,BB[res],CC[2],year,DD[m],".nc"))  ## TN (°K)
+  AA3 <- nc_open(paste0(AA,BB[res],CC[3],year,DD[m],".nc"))  ## TX (°K)
+  TN <- ncvar_get(AA2,VAR[2])
+  TX <- ncvar_get(AA3,VAR[3])
+  if (m <= 3) AA2x <- nc_open(paste0(AA,BB[res],CC[2],year+1,DD[m],".nc"))  ## TN (°K)
+  if (m <= 3) AA3x <- nc_open(paste0(AA,BB[res],CC[3],year+1,DD[m],".nc"))  ## TX (°K)
+  if (m <= 3) TNx <- ncvar_get(AA2x,VAR[2])
+  if (m <= 3) TXx <- ncvar_get(AA3x,VAR[3])
+## SN (CURRENT YEAR AND NEXT THREE NEXT MONTHS)
+  AA4 <- nc_open(paste0(AA,BB[res],CC[4],year,DD[m],".nc"))  ## SN (m/day)
+  SN <- ncvar_get(AA4,VAR[4])
+  if (m <= 3) AA4x <- nc_open(paste0(AA,BB[res],CC[4],year+1,DD[m],".nc"))  ## SN (m/day)
+  if (m <= 3) SNx <- ncvar_get(AA4x,VAR[4])  
+## LON-LAT READING  
+  LONx <- ncvar_get(AA1,"lon")  
+  LATy <- ncvar_get(AA1,"lat")
+#######################################################################################
+## WE CREATE THE 12 + 3 MONTHS FILES ##################################################
+  for (i in 1:nlon) {  ## LOOP LX (L3)
+   for (j in 1:nlat) {  ## LOOP LY (L4)
+    if (is.na(CR[i,j])) next  ## Skip non-land grid points
+# We fill the annual (+3 months) month by month (converting the input data)
+    XX[1,i,j,ii:iif] <- rain*RR[i,j,1:MMd[m]]
+    XX[2,i,j,ii:iif] <- conv + TN[i,j,1:MMd[m]]
+    XX[3,i,j,ii:iif] <- conv + TX[i,j,1:MMd[m]]
+    XX[4,i,j,ii:iif] <- rain*SN[i,j,1:MMd[m]]
+    if (m <= 3) XX[2,i,j,iix:ifx] <- conv + TNx[i,j,1:MMd[m]]
+    if (m <= 3) XX[3,i,j,iix:ifx] <- conv + TXx[i,j,1:MMd[m]]
+    if (m <= 3) XX[4,i,j,iix:ifx] <- rain*SNx[i,j,1:MMd[m]]
+# Some outputs can be computed here (monthly and annual core variables)
+    OUTm[7,i,j,m]  <- rain*sum(RR[i,j,1:MMd[m]],na.rm=TRUE)     ## Monthly RR
+    ZD[1,i,j,pp]   <- OUTm[7,i,j,m]                             ## Monthly RR used for Drought 
+    OUTm[8,i,j,m]  <- conv + mean(TN[i,j,1:MMd[m]],na.rm=TRUE)  ## Monthly TN
+    OUTm[10,i,j,m] <- conv + mean(TX[i,j,1:MMd[m]],na.rm=TRUE)  ## Monthly TX
+    OUTm[9,i,j,m]  <- 0.5*(OUTm[8,i,j,m] + OUTm[10,i,j,m])      ## Monthly TM
+    if (m == nm) {  ## Annual values computed when the monthly loop is on December
+     OUTm[11,i,j,1:nm] <- hargreaves(OUTm[8,i,j,1:nm],OUTm[10,i,j,1:nm],lat=LATy[j],na.rm=TRUE,verbose=FALSE)
+                                                                ## Monthly PET
+     OUTy[7,i,j]  <- sum(OUTm[7,i,j,1:nm],na.rm=TRUE)   ## Annual RR         
+     OUTy[8,i,j]  <- mean(OUTm[8,i,j,1:nm],na.rm=TRUE)  ## Annual TN
+     OUTy[9,i,j]  <- mean(OUTm[9,i,j,1:nm],na.rm=TRUE)  ## Annual TM
+     OUTy[10,i,j] <- mean(OUTm[10,i,j,1:nm],na.rm=TRUE) ## Annual TX
+     OUTy[11,i,j] <- sum(OUTm[11,i,j,1:nm],na.rm=TRUE)  ## Annual PET
+     ZD[2,i,j,(pp-11):pp] <- OUTm[11,i,j,1:nm] }        ## Monthly PET used for Drought 
+# We now have all OUTPUTS from 7 to 11 (Annual and Monthly)
+    asd <- 0 }}  ## Close LOOPs LY-LX (4-3)
+# Let's clean the quantities specific for the month running in this loop
+  nc_close(AA1)
+  nc_close(AA2)
+  nc_close(AA3)
+  nc_close(AA4)
+  rm(AA1,AA2,AA3,AA4,RR,TN,TX,SN)
+  if (m <= 3) {
+   nc_close(AA2x)
+   nc_close(AA3x)
+   nc_close(AA4x)
+   rm(AA2x,AA3x,AA4x,TNx,TXx,SNx) }
+# Now we can close the month
+  asd <- 0 } ## Close LOOP M (2)
+####################################################################################### 
+# Now we have a mega-file with 12+3 month of daily data for the input variables
+# We are still within the single year loop (1950, 1951, etc...)
+#######################################################################################
+### CORE PART (EXCLUDING DROUGHT) #####################################################
+ print("Hazards")
+# Another double Loop on grid points
+ for (i in 1:nlon) {  ## LOOP LX2 (L2)
+#  if ((i/nlon) %in% c(0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9)) print(c("Hazards",100*i/nlon))
+  for (j in 1:nlat) {  ## LOOP LY2 (L3)
+   if (is.na(CR[i,j])) next  ## Skip non-land grid points
+# Seasons in the Hemispheres
+   if (j >= (0.5*nlat)) {  ## Northern Hemisphere 
+    wi <- 273  ## Start of 6-month winter is (approx) October 1st
+    wf <- 455  ## End of 6-month winter is (approx) March 31st (next year)
+    si <-  91  ## Start of 6-month summer is (approx) April 1st
+    sf <-  wi  ## End of 6-month summer is (approx) September 30th
+   } else if (j < (0.5*nlat)) { ## Southern Hemisphere 
+    wi <-  91  ## Start of 6-month winter is (approx) April 1st
+    wf <- 273  ## End of 6-month winter is (approx) September 30th
+    si <-  wf  ## Start of 6-month summer is (approx) October 1st
+    sf <- 455  ## End of 6-month summer is (approx) March 31st (next year)
+    asd <- 0 }
+### COLDWAVES ######################################################################### 
+   jj <- wi
+# The real loop starts here (over 183 days of winter)
+   for (ii in wi:(wf-4)) {  ## LOOP D1a - 6-month winter (L4) 
+    ee <- ii - wi + 1
+    if (ii < jj) next   
+    if ( (XX[2,i,j,ii]   <= WST[1,i,j,ee])   & (XX[2,i,j,ii+1] <= WST[1,i,j,ee+1]) & (XX[2,i,j,ii+2] <= WST[1,i,j,ee+2]) &
+         (XX[2,i,j,ii+3] <= WST[1,i,j,ee+3]) & (XX[2,i,j,ii+4] <= WST[1,i,j,ee+4]) & max(XX[2,i,j,ii:(ii+4)]) <= 0 ) {  ## Event (L5)
+# We included the additional condition: TN < 0°C for all the 5 days
+     sev <- 0  ## Severity for this particular event
+     for (iii in ii:wf) {  ## LOOP D2a - Inside the event (L6)
+      jj <- iii + 1
+      gg <- iii - wi + 1
+      if ((XX[2,i,j,iii] > WST[1,i,j,gg]) | (XX[2,i,j,iii] > 0)) break  ## The event is over      
+      sev <- sev + abs(XX[2,i,j,iii] - WST[1,i,j,gg])  ## Sum (event severity)
+      mxm <- 1 + iii%/%30.42  ## Month (1-15)
+      OUTm[1,i,j,mxm] <- OUTm[1,i,j,mxm] + abs(XX[2,i,j,iii] - WST[1,i,j,gg])  ## Monthly severity (Output) 
+      OUTy[1,i,j]     <- OUTy[1,i,j]     + abs(XX[2,i,j,iii] - WST[1,i,j,gg])  ## Total annual severity (Output) 
+      if (sev >= OUTr[1,i,j]) OUTr[1,i,j] <- sev  ## If larger than the largest, this event becomes the largest
+      asd <- 0 } } } ## Close LOOP D2a (6), Event (5), and LOOP D1a (4)
+### HEATWAVES ######################################################################### 
+   jj <- si
+# The real loop starts here (over 183 days of summer)
+   for (ii in si:(sf-4)) {  ## LOOP D1b - 6-month summer (L4) 
+    ee <- ii - si + 1
+    if (ii < jj) next   
+    if ( (XX[3,i,j,ii]   >= WST[2,i,j,ee])   & (XX[3,i,j,ii+1] >= WST[2,i,j,ee+1]) & (XX[3,i,j,ii+2] >= WST[2,i,j,ee+2]) &
+         (XX[3,i,j,ii+3] >= WST[2,i,j,ee+3]) & (XX[3,i,j,ii+4] >= WST[2,i,j,ee+4]) & min(XX[3,i,j,ii:(ii+4)]) >= 30 ) {  ## Event (L5)
+# We included the additional condition: TN < 0°C for all the 5 days
+     sev <- 0  ## Severity for this particular event
+     for (iii in ii:sf) {  ## LOOP D2b - Inside the event (L6)
+      jj <- iii + 1
+      gg <- iii - si + 1
+      if ((XX[3,i,j,iii] < WST[2,i,j,gg]) | (XX[3,i,j,iii] < 30)) break  ## The event is over      
+      sev <- sev + abs(XX[3,i,j,iii] - WST[2,i,j,gg])  ## Sum (event severity)
+      mxm <- 1 + iii%/%30.42 
+      OUTm[2,i,j,mxm] <- OUTm[2,i,j,mxm] + abs(XX[3,i,j,iii] - WST[2,i,j,gg])  ## Monthly severity (Output) 
+      OUTy[2,i,j]     <- OUTy[2,i,j]     + abs(XX[3,i,j,iii] - WST[2,i,j,gg])  ## Total annual severity (Output) 
+      if (sev >= OUTr[2,i,j]) OUTr[2,i,j] <- sev  ## If larger than the largest, this event becomes the largest
+      asd <- 0 } } } ## Close LOOP D2b (6), Event (5), and LOOP D1b (4)
+### RAINFALL EXTREMES #################################################################
+   ss <- 0
+   for (k in 1:nd) {  ## LOOP D1c - DAYS (Entire Year; L4)
+    mxm <- 1 + k%/%30.42
+    if (XX[1,i,j,k] >= PTT[i,j]) OUTm[14,i,j,mxm] <- OUTm[14,i,j,mxm] + XX[1,i,j,k]  ## Monthly Kotz Pext (Output)
+    if (XX[1,i,j,k] >= PTT[i,j]) OUTy[14,i,j] <- OUTy[14,i,j] + XX[1,i,j,k]          ## Annual Kotz Pext (Output)
+    if (XX[1,i,j,k] > 1) OUTm[13,i,j,mxm] <- OUTm[13,i,j,mxm] + 1                    ## Monthly Kotz Wet days (Output)
+    if (XX[1,i,j,k] > 1) OUTy[13,i,j] <- OUTy[13,i,j] + 1                            ## Annual Kotz Wet days (Output)
+# RR 5-day cumulate (max on month, year, and record)
+    if (k >= 5) {   ## RR5d (max)
+     ss <- sum(XX[1,i,j,k:(k-4)])
+#    if (ss < 100) next  ## Special condition: 5-day cumulated rainfall below 100mm is not considered
+     if (ss >= OUTm[5,i,j,mxm]) OUTm[5,i,j,mxm] <- ss  ## Monthly largest 5-day cumulate (Output)
+     if (ss >= OUTy[5,i,j]) OUTy[5,i,j]  <- ss         ## Annual largest 5-day cumulate (Output)
+     if (ss >= OUTr[5,i,j]) OUTr[5,i,j]  <- ss         ## Largest 5-day cumulate recorded (Output)
+     asd <- 0 } }  ## Close if and LOOP D1c (4)
+### SNOWFALL EXTREMES #################################################################
+   sw <- 0
+   for (k in wi:wf) {  ## LOOP D1d - DAYS (6-month winter; L4)
+    mxm <- 1 + k%/%30.42
+# SN 3-day cumulate (max on month, year, and record)
+    if (k >= wi+2) {   ## SN3d (max)
+     sw <- sum(XX[4,i,j,k:(k-2)])
+#    if (sw < 10) next  ## Special condition: 3-day cumulated snowfall below 10cm is not considered
+     if (sw >= OUTm[6,i,j,mxm]) OUTm[6,i,j,mxm] <- sw  ## Monthly largest 5-day cumulate (Output)
+     if (sw >= OUTy[6,i,j]) OUTy[6,i,j] <- sw          ## Annual largest 5-day cumulate (Output)
+     if (sw >= OUTr[6,i,j]) OUTr[6,i,j] <- sw          ## Largest 5-day cumulate recorded (Output)
+     asd <- 0 } }  ## Close if and LOOP D1d (4)
+### DAILY TEMP VARIABILITY ############################################################
+   for (m in 1:nm) {  ## LOOP M - MONTHS (L4)
+    MTM <- OUTm[9,i,j,m]  ## Monthly TM
+    STM <- 0
+    mdi <- MMi[m]
+    mdf <- mdi + MMd[m] - 1  
+    for (dd in mdi:mdf) {  ## LOOP DM - DAYS WITHIN MONTH (L5)
+     DTM <- 0.5*(XX[2,i,j,dd] + XX[3,i,j,dd])
+     STM <- STM + (DTM-MTM)^2 }  ## Close LOOP DM (5)    
+    OUTm[12,i,j,m] <- sqrt(STM/MMd[m]) }  ## Close LOOP M (4)
+   OUTy[12,i,j] <- mean(OUTm[12,i,j,1:nm])
+####################################################################################### 
+   asd <- 0 }}  ## Close LOOPs LY-LX (3-2) 
+ rm(XX,pp,ii,iif,iix,ifx,wi,wf,si,sf,ee,mxm,ss,sw,MTM,STM,DTM,mdi,mdf)
+#######################################################################################
+
+#######################################################################################
+### WRITING SECTION (ANNUAL & MONTHLY FOR THIS YEAR) ##################################
+#######################################################################################
+ print(c("Writing",year))
+ for (xyz in 1:14) {  ## LOOP O - OUTPUTS (L2)
+  if (xyz %in% c(3,4)) next  ## Drought is in the next big loops
+# Annual outputs (Beware: 1950 is 1950/51 for HW,CW,SNX)
+  OutF1 <- paste0("ERA5_",BB[res],ZZ1[xyz],year,".nc")
+  OutV1 <- ncvar_def(vary,varv[xyz],list(dim1,dim2),NA,longname=vary,prec="float")
+  OutG1 <- nc_create(OutF1,list(OutV1,OutX,OutY))
+  ncvar_put(OutG1,OutV1,round(OUTy[xyz,1:nlon,1:nlat],2))  
+  ncvar_put(OutG1,OutX,round(LONx,2))
+  ncvar_put(OutG1,OutY,round(LATy,2))
+# Monthly outputs
+  OutF2 <- paste0("ERA5_",BB[res],ZZ1[xyz],year,"_MM.nc")
+  OutV2 <- ncvar_def(varm,varv[xyz],list(dim1,dim2,dim3m),NA,longname=varm,prec="float")
+  OutG2 <- nc_create(OutF2,list(OutV2,OutX,OutY))
+  ncvar_put(OutG2,OutV2,round(OUTm[xyz,1:nlon,1:nlat,1:nmx],2))  
+  ncvar_put(OutG2,OutX,round(LONx,2))
+  ncvar_put(OutG2,OutY,round(LATy,2))
+# Record (Largest Event) outputs - Only on the last year in the loop (2023)
+  if (year == 2023 & xyz <= 6) {
+   OutF3 <- paste0("ERA5_",BB[res],ZZ1[xyz],ZZ2,".nc")
+   OutV3 <- ncvar_def(varr,varv[xyz],list(dim1,dim2),NA,longname=varr,prec="float")
+   OutG3 <- nc_create(OutF3,list(OutV3,OutX,OutY))
+   ncvar_put(OutG3,OutV3,round(OUTr[xyz,1:nlon,1:nlat],2))  
+   ncvar_put(OutG3,OutX,round(LONx,2))
+   ncvar_put(OutG3,OutY,round(LATy,2)) } 
+# Clean
+  nc_close(OutG1)
+  nc_close(OutG2)
+  rm(OutF1,OutG1,OutV1,OutF2,OutG2,OutV2)
+  if (year == 2023 & xyz <= 6) nc_close(OutG3)
+  if (year == 2023 & xyz <= 6) rm(OutF3,OutG3,OutV3)   
+  gc() } ## Close LOOP O (2)                                                 
+#######################################################################################
+ rm(OUTy,OUTm,year)
+ gc() }  ## Close LOOP Y (1)
+#######################################################################################
+# Some cleaning before moving to the special drought part #############################
+rm(WST,PTT)
+gc()
+#######################################################################################
+#######################################################################################
+
+#######################################################################################
+### DROUGHTS - PLACED AFTER THE MAIN LOOPS ############################################
+#######################################################################################
+### MASK TO SKIP ARID AND FROZEN LANDS
+for (i in 1:nlon) {  ## LOOP LX1 - Longitude (L1)
+ for (j in 1:nlat) {  ## LOOP LY1 - Latitude (L2)
+  if (is.na(CR[i,j])) next  ## Skip non-land grid points
+
+### MASK FOR ARID AREAS AND FROZEN LANDS ##############################################
+# Obtain the mask (arid areas from AI and frozen from PET) 
+  MK[i,j] <- 1                                                                   ## Valid grid points // MK == 1
+  if (sum(ZD[1,i,j,13:732])/(sum(ZD[2,i,j,13:732] + 0.1)) <= 0.05) MK[i,j] <- 2  ## Hyper-arid areas  // MK == 2  // AI <= 0.05
+  if (mean(ZD[2,i,j,13:732]) < 30.4) MK[i,j] <- 3                                ## Frozen lands      // MK == 3  // PET < 1 mm/day
+  asd <- 0 }}  ## Close LOOPs LY1-LX1 (2-1)
+
+####################################################################################### 
+### SPI AND SPEI ######################################################################
+# Core Loop (dividing SPI from SPEI)
+for (s in 1:2) {  ## LOOP S - DROUGHT INDICATOR (SPI or SPEI; L1)
+ print(c("Drought",s))
+# Event-only means the series has values only within drought events and 0 elsewhere
+  EV <- array(0,c(nlon,nlat,nmt))  ## Drought event-only time series
+# Double loop on grid 
+ for (i in 1:nlon) {  ## LOOP LX2 - Longitude (L2)
+  if((i/nlon) %in% c(0.05,0.15,0.25,0.35,0.45,0.55,0.65,0.75,0.85,0.95)) print(c("Computing",100*i/nlon))
+  for (j in 1:nlat) {  ## LOOP LY2 - Latitude (L3)
+# Skip sea, arid, and frozen lands
+   if (is.na(CR[i,j]) | MK[i,j] != 1) next  ## Skip non-land grid points
+# Bridge variables  
+   CWB <- array(NA,c(nmt))  ## Climatic Water Balance
+   if (s == 1) CWB <- ZD[1,i,j,1:nmt]
+   if (s == 2) CWB <- ZD[1,i,j,1:nmt] - ZD[2,i,j,1:nmt]
+   SP  <- array(NA,c(nmt))  ## Spi or Spei
+# Prepare the input quantities for package SPEI (CWB organized by months)
+   CWBin <- array(NA,c(nmt))
+   IND   <- array(NA,c(nmt))
+# The package SPEI plays its magic 
+   CWBin <- ts(CWB[],freq=nm,start=rst) 
+   IND <- spei(CWBin,acc,ref.start=ri,ref.end=rf,na.rm=TRUE,distribution=distr[s],fit='ub-pwm',verbose=FALSE)
+   XP <- as.vector(IND$fitted)
+   XP[is.infinite(XP)] <- NA  ## With 3-month accumulation, you might have Inf values, with 12-month you should not
+   SP[1:nmt] <- XP[1:nmt]
+#######################################################################################
+### DROUGHT EVENT-ONLY TIME SERIES ####################################################
+# Core computations
+   if (is.na(SP[acc])) next 
+   kps <- acc  ## First month of valid data (later the pointer)
+# Loop to search for drought events (3+ consecutive months)
+   for (k in acc:(nmt-2)) {  ## LOOP EV1 - Months (L4)
+    if (k >= kps) {  ## Pointer (L5)
+# Condition to start the inner loop over the drought event (L6)
+     if (is.finite(SP[k]) & (SP[k] <= -1) & is.finite(SP[k+1]) & (SP[k+1] <= -1) & is.finite(SP[k+2]) & (SP[k+2] <= -1)) { 
+      pin <- k
+      for (p in pin:nmt) {  ## LOOP EV2 - Over the drought event (L7)
+       kps <- p + 1    ## The pointer moves forward (so the next loop will start after the end of the drought event) 
+       if (is.na(SP[p]) | SP[p] > 0) break  ## Break the loop if the drought ends
+# Assign the real value to the values inside the drought event
+       EV[i,j,p] <- SP[p]  ## This is also what we will copy (with a condition) in the monthly outputs 3 and 4
+       asd <- 0 } }} } }} ## Close LOOP EV2 (7), double if (6-5), LOOPs EV1-LY2-LX2 (4-3-2)
+#######################################################################################
+
+#######################################################################################
+### MONTHLY AND ANNUAL DROUGHT SEV AND LARGEST YEAR ###################################
+# We loop over the years (again, within lon-lat) as the outputs need to be annual
+ print("Writing Drought")
+ for (yy in 1:nyy) {  ## LOOP Y - Years (L2)
+  year <- 1949 + yy
+  ki <- nm*(yy-1) + 1  ## January of each year
+  kf <- ki + 11        ## December of each year
+# Re-initialize some output quantities
+  OUTy <- array(0,c(2,nlon,nlat))      ## Annual 
+  OUTm <- array(0,c(2,nlon,nlat,nm))  ## Monthly (Year)
+# We loop again on Lon-Lat
+  for (i in 1:nlon) {  ## LOOP LX - Longitude (L3)
+   for (j in 1:nlat) {  ## LOOP LY - Latitude (L4)
+    OUTm[s,i,j,1:nm] <- EV[i,j,(ki:kf)]                            ## Monthly Drought (Within events, no coditions)
+    OUTy[s,i,j] <- abs(sum(EV[i,j,ki:kf],na.rm=TRUE))              ## Annual Drought Severity (with no conditions)
+    if (OUTy[s,i,j] > OUTr[s+2,i,j]) OUTr[s+2,i,j] <- OUTy[s,i,j]  ## Largest Drought Year in 1950-2023
+    asd <- 0 }}  ## Close LOOPs LY-LX (4-3)
+### WRITING - DROUGHT SPECIAL #########################################################
+  OutD1 <- paste0("ERA5_",BB[res],ZZ1[2+s],year,".nc")
+  OutDV1 <- ncvar_def(vary,varv[2+s],list(dim1,dim2),NA,longname=vary,prec="float")
+  OutDG1 <- nc_create(OutD1,list(OutDV1,OutX,OutY))
+  ncvar_put(OutDG1,OutDV1,round(OUTy[s,1:nlon,1:nlat],2)) 
+  ncvar_put(OutDG1,OutX,round(LONx,2))
+  ncvar_put(OutDG1,OutY,round(LATy,2))
+  OutD2 <- paste0("ERA5_",BB[res],ZZ1[2+s],year,"_MM.nc")
+  OutDV2 <- ncvar_def(varm,varv[2+s],list(dim1,dim2,dim3d),NA,longname=varm,prec="float")
+  OutDG2 <- nc_create(OutD2,list(OutDV2,OutX,OutY))
+  ncvar_put(OutDG2,OutDV2,round(OUTm[s,1:nlon,1:nlat,1:nm],2))  
+  ncvar_put(OutDG2,OutX,round(LONx,2))
+  ncvar_put(OutDG2,OutY,round(LATy,2))  
+  if (year == 2023) {
+   OutD3 <- paste0("ERA5_",BB[res],ZZ1[2+s],ZZ2,".nc")
+   OutDV3 <- ncvar_def(varr,varv[2+s],list(dim1,dim2),NA,longname=varr,prec="float")
+   OutDG3 <- nc_create(OutD3,list(OutDV3,OutX,OutY))
+   ncvar_put(OutDG3,OutDV3,round(OUTr[2+s,1:nlon,1:nlat],2))  
+   ncvar_put(OutDG3,OutX,round(LONx,2))
+   ncvar_put(OutDG3,OutY,round(LATy,2)) 
+   nc_close(OutDG3)
+   rm(OutDG3,OutD3,OutDV3) }
+  nc_close(OutDG1)
+  nc_close(OutDG2)
+  rm(OutDG1,OutDG2,OutD1,OutD2,OutDV1,OutDV2)
+  gc() }  ## Close LOOP Y (2)
+ rm(EV)
+ gc() }  ## Close LOOP S (1)
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### Final Cleaning and Quit ###########################################################
+rm(res,nlon,nlat,conv,rain,nyy,nmt,nd,asd,AA,BB,CC,DD,VAR,ZZ1,ZZ2)
+rm(OUTy,OUTm,OUTr,dim1,dim2,dim3p,dim3m,LONx,LATy,acc,ri,rf,rst,distr)
+rm(vary,varm,varr,varv,ds,nmx,CR,MMd,MMi,MK,ZD,nm,gg,sev,dim3d,CWB,SP,CWBin,IND,XP)
+gc()
+#######################################################################################
+#######################################################################################
+#######################################################################################

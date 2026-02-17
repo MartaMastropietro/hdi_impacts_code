@@ -1,0 +1,1703 @@
+#######################################################################################
+### 2023-2024 #########################################################################
+#######################################################################################
+### LEVIATHAN CODE FOR 12 CLASSES OF CLIMATE HAZARDS/EXTREMES USING ISIMIP3b ##########
+###  1 - HEAT AND COLD WAVES (WEATHER EXTREMES AND HEALTH) ############################
+###  2 - THERMAL COMFORT (HEALTH AND BIO-CLIMATE) #####################################
+###  3 - HEATING AND COOLING DEGREE-DAYS (ENERGY AND BUILDINGS) #######################
+###  4 - METEOROLOGICAL DROUGHTS (HYDROLOGY AND CLIMATE HAZARDS) ######################
+###  5 - EXTREME RAINFALL (WEATHER EXTREMES) ##########################################
+###  6 - COMPOUND EVENTS (HEATWAVES, DROUGHTS, RAINFALL, WIND) ########################
+###  7 - HUMAN CLIMATE NICHE (ANNUAL AND SEASONAL TEMP-PREC) ##########################
+###  8 - CLIMATE ZONES (CLIMATE CLASSIFICATION AND ARID AREAS) ########################
+###  9 - WIND REGIMES (WEATHER HAZARDS, ENERGY, WINDFARMS) ############################
+### 10 - FIRE DANGER (CLIMATE HAZARDS) ################################################
+### 11 - GROWING SEASON AND GROWING DEGREE-DAYS (AGRICULTURE AND CLIMATE) #############
+### 12 - SNOWFALL EXTREMES AND REGIMES (WEATHER AND CLIMATE) ##########################
+#######################################################################################
+#######################################################################################
+### BEWARE - HAZ 12 (UNPREC == 121 means no snow ever, so it is UNP == 0) #############
+#######################################################################################
+sw <- 10 ### Switch - Which hazard? (1-12)
+gi <- 9  ### Data - Which GCM? (1-10)
+gf <- gi ### To run all GCMs, set gf 10 (and gi 1) or the code runs the selected GCM
+si <- 3  ### Time - Which scenario? (1-9)
+sf <- 5  ### To run all scenarios, set sf to  9 (and si to 1)
+extd <- 1  ### Extended (Hazard 1 // 1 is classic CW and HW; 2 includes five sub-hazards)
+### TEST - ONE GRID POINT #############################################################
+# xix <- 379  ## LON
+# yiy <-  90  ## LAT
+#######################################################################################
+
+#######################################################################################
+### GENERAL SETTINGS (VALID FOR ALL CLIMATE HAZARDS) ##################################
+#######################################################################################
+### Basic settings ####################################################################
+require(ncdf4)                     ## To open and write ncdf files
+if (sw %in% c(4,8)) require(SPEI)  ## To compute PET and drought indicators
+if (sw == 10) require(fwi.fbp)     ## To compute Fire Weather Index (package dismissed)
+memory.limit(999999)               ## Push memory to the limit (no longer supported)
+### Main features and constants #######################################################
+nlon <-   720     ## Longitude grid points
+nlat <-   360     ## Latitude grid points
+conv <-  -273.15  ## °K to °C
+rain <- 86400     ## kg/m2s to mm/day (and cm/day for snow)
+wspd <-     3.6   ## m/s to km/h
+nyy  <-   220     ## Years in 1881-2100
+nmt  <- 12*nyy    ## Total number of months in 1881-2100
+nmh  <- 12*134    ## Months in the historical part (1881-2014)
+nmn  <- 12*140    ## Months in the hist-nat part (1881-2020)
+nd   <- 365       ## 365 days in a year unlsess clearly specified (leap years)
+cold <- 365       ## Annual PET value (in mm) to assign "cold climate" class for FAO-AI (Aridity)
+asd  <- 0         ## Troll pointer to avoid errors
+### Features spcific to some hazards ##################################################
+if (sw == 4) {      ## HAZ 4 - Meteorological Droughts
+ acc <- 12          ## Accumulation: 12-month (Spi or Spei - Drought)
+ ri  <- c(1951, 1)  ## Baseline: starting month (Spi or Spei - Drought)
+ rf  <- c(2010,12)  ## Baseline: ending month (Spi or Spei - Drought)
+ rst <- c(1881, 1)  ## First month of data (Spi or Spei - Drought)
+ distr <- c("Gamma","log-Logistic") } ## Statistical distribution for Spi and Spei
+#######################################################################################
+### File-names (inputs) ###############################################################
+GCM  <- c("canesm5_r1i1p1f1_","cnrm-cm6-1_r1i1p1f2_","cnrm-esm2-1_r1i1p1f2_",
+          "ec-earth3_r1i1p1f1_","gfdl-esm4_r1i1p1f1_","ipsl-cm6a-lr_r1i1p1f1_",
+          "miroc6_r1i1p1f1_","mpi-esm1-2-hr_r1i1p1f1_","mri-esm2-0_r1i1p1f1_",
+          "ukesm1-0-ll_r1i1p1f2_")  ## GCM (10 available in ISIMIP3b)
+WD   <- c("CAN_ESM5","CNRM_CM6","CNRM_ESM2","EC_EARTH3","GFDL_ESM4","IPSL_CM6A","MIRO_C6",
+          "MPI_ESM1","MRI_ESM2","UK_ESM1")         ## Name of the directory with the input data  
+BIA  <- "w5e5_"                                    ## Bias- adjusted with WFDEI and ERA5
+VAR  <- c("pr","tasmin","tasmax","hurs","sfcwind","prsn") ## Unit is kg/(m2*s),°K,°K,%,m/s,kg/(m2*s)
+GEO  <- "_landonly_daily_"                         ## No data over the sea in this version
+PER  <- c("1881_1890.nc","1891_1900.nc","1901_1910.nc","1911_1920.nc","1921_1930.nc",
+          "1931_1940.nc","1941_1950.nc","1951_1960.nc","1961_1970.nc","1971_1980.nc",
+          "1981_1990.nc","1991_2000.nc","2001_2010.nc","2011_2014.nc",
+          "2015_2020.nc","2021_2030.nc","2031_2040.nc","2041_2050.nc","2051_2060.nc",
+          "2061_2070.nc","2071_2080.nc","2081_2090.nc","2091_2100.nc")
+### Outputs ###########################################################################
+CLS  <- array(0,c(12,7))  ## Types of events/hazards
+PAR  <- array(0,c(12,7))  ## Types of parameters/features
+varo <- array("xxx",c(12,7))  ## Variable name for ncdf outputs
+varu <- array("xxx",c(12,7))  ## Variable description for ncdf outputs
+## HAZ 1 // CW Coldwaves, HW Heatwaves; n night, d day, dn both, e extreme
+if (extd == 2) CLS[1,1:5]  <- c("CWn_","CWdn_","HWd_","HWdn_","HWe_")
+if (extd == 1) CLS[1,1:2]  <- c("CWn_","HWd_")  ## Subset: Night Coldwaves and Day Heatwaves
+PAR[1,1:4]  <- c("EV_","DUR_","LARG_","UNP_")   ## Dur is duration, Unp is unprecedented
+varo[1,1:4] <- c("ev","dur","largest","unp")    ## Larg is largest (annual) event
+varu[1,1:4] <- c("events","days","score","events")   
+## HAZ 2 // TC Thermal Comfort; VHD (VHC) Very Hot (Cold) Days
+CLS[2,1]    <- "TC_"                  
+PAR[2,1:2]  <- c("VHD_","VCD_")
+varo[2,1:2] <- c("vhd","vcd")       
+varu[2,1:2] <- "days"
+## HAZ 3 // Heating (HDD), Cooling (CDD), Energy (EDD) Degree-days (DDDs)
+CLS[3,1]    <- "DDDs_"
+PAR[3,1:3]  <- c("HDD_","CDD_","EDD_")
+varo[3,1:3] <- c("hdds","cdds","edds")
+varu[3,1:3] <- "degdays"
+## HAZ 4 // Spi and Spei; Tot Sev (ann), Months in drought (ann), Unprec Year
+CLS[4,1:2]  <- c("SPI_","SPEI_") 
+PAR[4,1:3]  <- c("SEV_","DUR_","UNP_")
+varo[4,1:3] <- c("ds","dd","unp")
+varu[4,1:3] <- c("score","months","unprec")
+## HAZ 5 // Rainfall extremes; Max daily rain, Max 5-day rain, Unprec events
+CLS[5,1]    <- "RRX_" 
+PAR[5,1:3]  <- c("EXTR_","RR5d_","UNP_") 
+varo[5,1:3] <- c("rrx","rr5d","rru")
+varu[5,1:3] <- c("days","mm","events")
+## HAZ 6 // Compound: CW cwaves, HW hwaves, DR drought, RRX ext rain, WX strong wind
+CLS[6,1]    <- "CP_"  
+PAR[6,1:6]  <- c("CW_DR_","HW_DR_","DR_RX_","CW_RX_","HW_RX_","RX_WX_")
+varo[6,1:6] <- c("cw_dr","hw_dr","dr_rx","cw_rx","hw_rx","rx_wx")
+varu[6,1:6] <- "months"
+## HAZ 7 // Annual (YY), Seasonal (S1 Jan-Mar, ..., S4 Oct-Nov)
+CLS[7,1:4]  <- c("RR_","TN_","TM_","TX_")  ## Main variables  // Climate Niche  
+PAR[7,1:5]  <- c("YY_","S1_","S2_","S3_","S4_") 
+varo[7,1:5] <- c("ann","s1","s2","s3","s4")
+varu[7,1:4] <- c("mm","degC","degC","degC")
+## HAZ 8 //  AI classes, values (v); KG classes // Annual (last in 30y mov-win)
+CLS[8,1]    <- "CLCS_"  ## Climate Classification(s)
+PAR[8,1:3]  <- c("AIv_","AI_","KG_")  ## Aridity Index and Koppen-Geiger classification
+varo[8,1:3] <- c("AIv_","AI_","KG_")  ## Next studies: aiv, aic, kgc
+varu[8,1:3] <- c("value","class","class")
+# Beware - Already computed with 
+## HAZ 9 // WS (Wind Speed, days), cumulated sum (score), avg annual wind (m/s)
+CLS[9,1]    <- "WIND_"
+PAR[9,1:5]  <- c("CALM_","OPTIMAL_","STRONG_","ENERGY_","AVG_")
+varo[9,1:5] <- c("cd","od","sd","wse","wsa")
+varu[9,1:5] <- c("days","days","days","score","m/s")
+## HAZ 10 // Number of days (/year) with moderate, high, extreme fire danger
+CLS[10,1]    <- "FIRE_"
+PAR[10,1:2]  <- c("MOD_","HIGH_")
+varo[10,1:2] <- c("fdm","fdh") 
+varu[10,1:2] <- "days"
+# Discarded Fire Extreme Days because it never goes so high without values at noon
+## HAZ 11 // Growing Season Length (and with frost breaks), Deg-Days (annual, within GSL)
+CLS[11,1]    <- "GS_"
+PAR[11,1:4]  <- c("GSL_","GSLf_","GDD_","GDDg_")     ## This code runs without GDDg
+varo[11,1:4] <- c("gsl","gslf","gdd","gddg")
+varu[11,1:4] <- c("days","days","degdays","degdays")
+## HAZ 12 // Snowfall - Annual sum, (heavy and) snowy days, max 3-day snow, unprec 3-day (future)
+CLS[12,1]    <- "SNX_" 
+PAR[12,1:5]  <- c("TOT_","SNd_","SNh_","SN3d_","SNu_") 
+varo[12,1:5] <- c("snt","snd","snh","sn3d","snu")
+varu[12,1:5] <- c("cm","days","days","cm","cm")
+#######################################################################################
+### Dimensions ########################################################################
+# Set dimensions of the output ncdf files (once is enough) - All outputs are at annual timescale
+dim1  <- ncdim_def("x","row",1:nlon,longname="x_rows")  ## Lon-based
+dim2  <- ncdim_def("y","col",1:nlat,longname="y_cols")  ## Lat-based
+dim3  <- ncdim_def("time","years_from_1881",1:nyy,unlim=TRUE)  ## 1881-2100 for all outputs
+dim3s <- ncdim_def("time","months_from_01_1881",1:nmt,unlim=TRUE)  ## Dimension for monthly outputs
+OutX  <- ncvar_def("lon","degrees_east",list(dim1,dim2),NA,longname="Longitude",prec="float")
+OutY  <- ncvar_def("lat","degrees_north",list(dim1,dim2),NA,longname="Latitude",prec="float")
+### Temporal features (days, months, seasons) #########################################
+# Example: 1881-1890 is D2i (Leap are 4th and 8th), 1891-1900 is D1i (Leap are 2nd, 6th, 10th)
+D1i <- c(1,366,731,1096,1462,1827,2192,2557,2923,3288) ## Leap years: 4th and 8th (in 10-year files)
+D2i <- c(1,366,732,1097,1462,1827,2193,2558,2923,3288) ## Leap years: 2nd, 6th, 10th
+DMi <- c(1,32,60,91,121,152,182,213,244,274,305,335)   ## First day of each month
+MMi <- c(31,28,31,30,31,30,31,31,30,31,30,31)          ## Number of days per month
+DSi <- c(  1, 1, 60,152,244,335) ## First day (year, then each season with also 335 for S1 p2)
+DSf <- c(365,59,151,243,334,365) ## Last day (year, then each season with also 365 for S1 p2)
+mon <- array(0,c(nd))            ## Label (1-12 as months) for each day in claendar year (HAZ 10)
+#######################################################################################
+### Scenarios #########################################################################
+SCN <- array("xxx",c(10,9))  ## Matrix [rows are GCMs, cols are scenarios, if available]
+for (gg in 1:10) {  ## LOOP G1 - GCMs 
+ SCN[gg,1] <- "historical_"
+ if (gg %in% c(1,2,5,6,7,9)) SCN[gg,2] <- "hist-nat_"
+ if (gg %in% c(5,6,9,10))    SCN[gg,3] <- "ssp119_"
+ SCN[gg,4] <- "ssp126_"
+ if (gg %in% c(5,6,8,9,10))  SCN[gg,5] <- "ssp245_"
+ SCN[gg,6] <- "ssp370_"
+ if (gg %in% c(6,9))         SCN[gg,7] <- "ssp460_"
+ if (gg %in% c(1,3,6,9,10))  SCN[gg,8] <- "ssp534-over_"
+ SCN[gg,9] <- "ssp585_" }  ## Close LOOP G1 
+# Hist 1851-2014 (for us 1881-2014), hist-nat 1851-2020 (for us 1881-2020), scenarios 2015-2100
+# Exceptions: hist-nat 1960-2020 (for us 1961-2020) for sfcwind and prsn in g == 2 (cnrm-cm6)
+# Also g == 6 (ipsl-cm6a) only has prsn from 1960 (for us 1961) for hist-nat
+# ssp534-over is only 2040-2100 (for us 2041-2100);
+# g == 5 (gfdl-esm4) does not have prsn for ssp119 and ssp245 
+# g == 10 (uk-ems1) does not have hurs and prsn for ssp119
+#######################################################################################
+#######################################################################################
+
+#######################################################################################
+
+#######################################################################################
+### CORE LOOP SEQUENCY: GCMs (1), SCENARIOs (2), FILEs (3), YEARs (4) #################
+#######################################################################################
+#######################################################################################
+### CORE LOOP 1 - GLOBAL CLIMATE MODELS (10 GCMs) #####################################
+#######################################################################################
+for (g in gi:gf) {  ## LOOP 1 - GCMs (COL L1)
+ print(c("Hazard",sw,"GCM",g))  ## First checkpoint (GCM out of 10)
+# setwd(paste0("C:/ISIMIP3b/",WD[g],"/"))  ## Directory with INPUT DATA 
+  setwd("D:/MRI_ESM2/")                    ## Directory on external HD
+#######################################################################################
+# We allocate Lon-Lat general variables
+ LONx <- array(NA,c(nlon,nlat))
+ LATy <- array(NA,c(nlon,nlat))
+# Special switch for Haz 10 (Lon and Lat)
+ if (sw == 10) sxy <- 0
+#######################################################################################
+# Bridge variables for percentiles over 1981-2010 (HAZ 1,5,6)
+ if (sw == 1) {
+  if (extd == 2) { 
+   TT  <- array(NA,c(5,nlon,nlat,nd))  ## (1-5: TN10,TN90,TX10,TX90,TX95) - Daily values
+   ATT <- array(NA,c(5,nlon,nlat,nd))  ## Same as above but for 15-day moving window 
+   PTT <- array(NA,c(5,nlon,nlat,183)) ## Same but for cold season (1-2) and hot season (3-5)
+   wx  <- array(0,c(5,nlon,nlat)) }    ## Most severe year (hist)
+  if (extd == 1) {
+   TT  <- array(NA,c(2,nlon,nlat,nd))  ## (1-2: TN10,TX90) - Daily values
+   ATT <- array(NA,c(2,nlon,nlat,nd))  ## Same as above but for 15-day moving window 
+   PTT <- array(NA,c(2,nlon,nlat,183)) ## Same but for cold season (1) and hot season (2)
+   wx  <- array(0,c(2,nlon,nlat)) }    ## Most severe year (hist)
+   asd <- 0 }
+ if (sw == 5) {  
+  TT  <- array(NA,c(1,nlon,nlat,nd))   ## RR99 - Daily values
+  ATT <- array(NA,c(1,nlon,nlat,nd))   ## Same as above but for 15-day moving window 
+  wx  <- array(0,c(nlon,nlat)) }       ## Most severe historical event (5-day cumulate)
+ if (sw == 6) {  
+  TT  <- array(NA,c(4,nlon,nlat,nd))   ## (1-4: RR99,TN10,TX90,WN99) - Daily values
+  ATT <- array(NA,c(4,nlon,nlat,nd))   ## Same as above but for 15-day moving window 
+  PQ  <- array(1,c(nlon,nlat)) }       ## Mask to exclude sea data in later computations
+# Background variables for Met Drought (HAZ 4)
+ if (sw == 4) {  
+  MK   <- array(0,c(nlon,nlat))        ## Mask to esclude arid and frozen lands (hist) 
+  RRM  <- array(NA,c(nlon,nlat,nmt))   ## Monthly RR (hist + scen) 
+  PETM <- array(NA,c(nlon,nlat,nmt)) } ## Monthly RR (hist + scen)
+# Background variables for Snowfall Hazard (HAZ 12)
+ if (sw == 12) {  
+  wx  <- array(0,c(nlon,nlat)) }       ## Most severe historical event (3-day cumulate)  
+#######################################################################################
+
+#######################################################################################
+### SPECIAL SECTION - PERCENTILES OVER 1981-2010 (HAZARD 1,5,6) #######################
+#######################################################################################
+ if (sw %in% c(1,5,6)) {  ## If on sw (L2)
+  print("1-day percentiles")  ## Special checkpoint (Percentiles)
+#######################################################################################
+### PERCENTILES ON THE SINGLE DAY #####################################################
+  for (v in 1:5) {  ## LOOP P1 - RR, TN, TX (L3)
+   if ((sw == 1) & (v == 1)) next  ## No RR for HAZ 1
+   if ((sw == 1) & (v >= 4)) next  ## No HU nor WS or  for HAZ 1
+   if ((sw == 5) & (v >= 2)) next  ## Only RR for HAZ 5
+   if ((sw == 6) & (v == 4)) next  ## No HU for HAZ 6 (Compound)
+   F1 <- paste0(GCM[g],BIA,SCN[1],VAR[v],GEO,PER[11])  ## 1981-1990
+   F2 <- paste0(GCM[g],BIA,SCN[1],VAR[v],GEO,PER[12])  ## 1991-2000
+   F3 <- paste0(GCM[g],BIA,SCN[1],VAR[v],GEO,PER[13])  ## 2001-2010
+   A1 <- nc_open(F1)  ## Open the ncdf files
+   A2 <- nc_open(F2)
+   A3 <- nc_open(F3)
+   T1 <- ncvar_get(A1,VAR[v])  ## Get the input data (10-year chunks)
+   T2 <- ncvar_get(A2,VAR[v])
+   T3 <- ncvar_get(A3,VAR[v])
+# Grid-scale Loops ####################################################################
+   for (i in 1:nlon) {  ## LOOP L1 - Longitude (L4)
+    if (i %in% c(72,144,216,288,360,432,504,576,648)) print(c(v,100*i/nlon,"%"))  ## Visual progress checkpoint
+    for (j in 1:nlat) {  ## LOOP L2 - Latitude (L5)
+### TEST ###
+#     if ((i != xix) | (j != yiy)) next
+### TEST ###
+     if (is.na(T1[i,j,1])) next  ## Skip grid points over the sea (repeat this line anytime necessary)
+     for (k in 1:nd) {  ## LOOP D1 - Days (365) - We do not consider leap years at this stage (L6)
+      if (sw %in% c(5,6) & (v == 1)) TT[1,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.99,na.rm=TRUE)  ## RR99     
+      if (sw == 1) { 
+       if (extd == 2) {  ## HAZ 1 with 5 outputs ("Extended")
+        if (v == 2) TT[1,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.1, na.rm=TRUE)   ## TN10
+        if (v == 2) TT[2,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.9, na.rm=TRUE)   ## TN90
+        if (v == 3) TT[3,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.1, na.rm=TRUE)   ## TX10
+        if (v == 3) TT[4,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.9, na.rm=TRUE)   ## TX90
+        if (v == 3) TT[5,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.95,na.rm=TRUE) } ## TX95
+       if (extd == 1) {  ## HAZ 1 with 2 outputs ("Reduced")
+        if (v == 2) TT[1,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.1, na.rm=TRUE)   ## TN10
+        if (v == 3) TT[2,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.9, na.rm=TRUE) } ## TX90
+       asd <- 0 }
+      if (sw == 6) {  ## Haz 6 (Compound)
+       if (v == 2) TT[2,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.1, na.rm=TRUE)   ## TN10
+       if (v == 3) TT[3,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.9, na.rm=TRUE)   ## TX90
+       if (v == 5) TT[4,i,j,k] <- quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.99, na.rm=TRUE) } ## WN99
+      asd <- 0 } }} ## Close LOOPs D1-L2-L1 (6-4)
+# Close files and clean before moving to second variable
+   nc_close(A1)
+   nc_close(A2)
+   nc_close(A3)
+   rm(F1,A1,F2,F3,A2,A3)
+   rm(T1,T2,T3)
+   gc() }  ## Close LOOP V1 (3)
+#######################################################################################
+#######################################################################################
+### PERCENTILES ON 15-DAY MOVING WINDOW ###############################################
+  print("15-day percentiles")  ## Special checkpoint (Percentiles)
+  for (i in 1:nlon) {  ## LOOP L1 - Longitude (L3)
+   for (j in 1:nlat) {  ## LOOP L2 - Latitude  (L4)
+### TEST ###
+#    if ((i != xix) | (j != yiy)) next
+### TEST ###
+    if (is.na(TT[1,i,j,1])) next  ## Skip grid points over the sea
+    for (vv in 1:5) {  ## LOOP V1 - On variables (percentiles) (L5)
+### Reduced Hazard 1
+     if ((sw == 1) & (extd == 1) & (vv >= 3)) next  ## Only TN10 and TX90 for HAZ 1
+### Other Hazards
+     if ((sw == 5) & (vv >= 2)) next  ## Only RR99 for HAZ 5
+     if ((sw == 6) & (vv >= 5)) next  ## Four quantities for HAZ 6
+     for (kk in 1:nd) {  ## LOOP D1 - Days (15-day average) (L6)
+      if (kk <= 7) {  ## 01-07 January needs the last days of December (L7)
+       k1 <- nd + kk - 7
+       if (sw == 6 & vv == 4)                       ATT[vv,i,j,kk] <- mean(TT[vv,i,j,c(k1:nd,1:(kk+7))],na.rm=TRUE)         ## Here we do not convert (m/s)
+       if (sw == 1 | (sw == 6 & vv >= 2 & vv <= 3)) ATT[vv,i,j,kk] <- conv + mean(TT[vv,i,j,c(k1:nd,1:(kk+7))],na.rm=TRUE)  ## Here we convert from °K to °C
+       if (sw %in% c(5,6) & (vv == 1))              ATT[vv,i,j,kk] <- rain*mean(TT[vv,i,j,c(k1:nd,1:(kk+7))],na.rm=TRUE)    ## Here we convert from kg/m2s to mm
+      } else if ((kk >= 8) & (kk <= 358)) {  ## 08 January to 24 December  
+       if (sw == 6 & vv == 4)                       ATT[vv,i,j,kk] <- mean(TT[vv,i,j,c((kk-7):(kk+7))],na.rm=TRUE)
+       if (sw == 1 | (sw == 6 & vv >= 2 & vv <= 3)) ATT[vv,i,j,kk] <- conv + mean(TT[vv,i,j,c((kk-7):(kk+7))],na.rm=TRUE)
+       if (sw %in% c(5,6) & (vv == 1))              ATT[vv,i,j,kk] <- rain*mean(TT[vv,i,j,c((kk-7):(kk+7))],na.rm=TRUE)
+      } else {        ## 25-31 December need the first days of January     
+        k2 <- kk - nd + 7
+       if (sw == 6 & vv == 4)                       ATT[vv,i,j,kk] <- mean(TT[vv,i,j,c((kk-7):nd,1:k2)],na.rm=TRUE)
+       if (sw == 1 | (sw == 6 & vv >= 2 & vv <= 3)) ATT[vv,i,j,kk] <- conv + mean(TT[vv,i,j,c((kk-7):nd,1:k2)],na.rm=TRUE)
+       if (sw %in% c(5,6) & (vv == 1))              ATT[vv,i,j,kk] <- rain*mean(TT[vv,i,j,c((kk-7):nd,1:k2)],na.rm=TRUE) } 
+      asd <- 0 }} }}  ## Close if (7) and LOOPs D1-V1-L2-L1 (6-3)
+# Clean memory
+  rm(TT,k1,k2)
+  gc() }  ## Close major if on sw (2)
+
+#######################################################################################
+#######################################################################################
+### CORE LOOP 2 - SCENARIOS ###########################################################
+#######################################################################################
+ for (sc in si:sf) {  ## LOOP 2 - Historical + Hist-nat + Scenarios (L2)
+  print(c("Hazard",sw,"GCM",g,"Scenario",sc))  ## Second checkpoint (Scenarios out of 9)
+   
+#######################################################################################
+#######################################################################################
+### Time interval for the analyses depends on the hist or scenario and GCM
+  if (SCN[g,sc] == "xxx") next  ## Unavailable scenario for that GCM
+# Number of files to open (beware of the exceptions) - Numbering is bound to the period 
+  if (sc <= 2)                nf <- c( 1,14)  ## Hist and hist-nat (1881-2014 and 1881-2020)
+  if ((g == 2) & (sc == 2) & (sw %in% c(2,6,9,10,12))) nf <- c(9,14) 
+                                              ## Hist-nat for g == 2 (1961-2020) due to scfwind and prsn
+  if ((g == 6) & (sc == 2) & (sw == 12)) nf  <- c(9,14)  ## Hist-nat for g == 6 (1961-2020) due to prsn
+  if (sc %in% c(3,4,5,6,7,9)) nf <- c(15,23)  ## Scenarios (2015-2100)
+  if (sc == 8)                nf <- c(18,23)  ## SSP5-3.4ov (2041-2100)
+# Special exception for period (2011-2020 for hist-nat)
+  PER[14] <- "2011_2014.nc"
+  if (sc == 2) PER[14] <- "2011_2020.nc"
+# Special switch for ssp5-3.4ov
+  s5ov <- 0
+  if (SCN[g,sc] == "ssp534-over_") s5ov <- 1
+# Special switch for hurs (HU) // HAZ 2 and 10
+  shu <- 1
+  if (g == 10 & sc == 3) shu <- 0
+#  if (SCN[g,sc] == "ssp119_") shu <- 0  ## Latest data update solves this issue 
+#  if (SCN[g,sc] == "ssp460_") shu <- 0  ## Latest data update solves this issue 
+  if ((sw %in% c(2,10)) & (shu == 0)) next  ## No hurs, HAZ 2 and 10 not avb
+# Special switch for prsn (SN) // HAZ 12 
+  snw <- 1
+  if (g == 10 & sc == 3) snw <- 0
+#  if (SCN[g,sc] == "ssp119_") snw <- 0  ## Latest data update solves this issue 
+#  if (SCN[g,sc] == "ssp460_") snw <- 0  ## Latest data update solves this issue 
+  if ((sw == 12) & (snw == 0)) next            ## No prsn, HAZ 12
+  if ((sw == 12) & (g == 5) & (sc == 5)) next  ## No prsn, HAZ 12 not avb
+#######################################################################################
+# Special bridge variable for hist-nat (monthly RR and PET until 2020) - HAZARDS (4,6,8)
+  if ((sw == 4) & (sc == 2)) {
+   MKn   <- array(0,c(nlon,nlat))        ## Mask to esclude arid and frozen lands (hist-nat)
+   RRMn  <- array(NA,c(nlon,nlat,nmn))
+   PETMn <- array(NA,c(nlon,nlat,nmn)) }
+# Bridge variable for Hazard 6 // Number of days (/months) for HW, CW, RRX, WX
+  if (sw == 6) NNN <- array(0,c(4,nlon,nlat,nmt))  ## We store the number of days (/month) with extreme events
+# Bridge variables for HAZ 8 // Monthly RR,TN,TM,TX,PET (WCL and ZCL) and 30-y for derived indicators (XCL)
+  if (sw == 8) { 
+   if (sc == 1) WCL  <- array(NA,c(5,nlon,nlat,nyy*12))   ## Hist (initialized)
+   if (sc == 2) WCLn <- array(NA,c(5,nlon,nlat,140*12))   ## Hist-nat (initialized)
+   ZCL  <- array(NA,c(5,nlon,nlat,nyy*12))                ## WCL transferred into ZCL in last computation part
+   XCL  <- array(NA,c(7,nlon,nlat,nyy))                   ## Parameters to compute AI anf KG
+   if (sc >= 3) WCL[1:5,1:nlon,1:nlat,(1+nmh):nmt] <- NA  ## Scenarios (re-initialized)
+   asd <- 0 }  
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### SECTION S - HAZARD DESCRIPTION AND OUTPUT VARIABLES ###############################
+#######################################################################################
+### 1 - HEATWAVES AND COLDWAVES #######################################################
+# Classic   HW (CW): 5+ consecutive days (nights) with TX > 90th (TN < 10th)
+# Day-night HW (CW): 5+ consecutive days with both TX and TN > 90th (both < 10th) 
+# Extreme   HW:      7+ consecutive days with TX > 95th and TX > 35°C
+# Additional condition(s): TN should be < 0°C and TX should be > 30°C (except extreme)
+  if ((sw == 1) & (extd == 2)) CHW <- array(0,c(5,4,nlon,nlat,nyy)) 
+# Reduced Hazard 1 (only classic Hw and CW)
+  if ((sw == 1) & (extd == 1)) CHW <- array(0,c(2,4,nlon,nlat,nyy)) 
+# Outputs: Ev/year, Days within event, Largest event, Unprecedented event (future only)
+# Option (WMO): 5+ consecutive days with TX > (Tx50 + 5°C) for heat wave
+### 2 - THERMAL COMFORT ###############################################################
+# Net Effective Temperature (NET) - NET > 27 (Very Hot Days), NET < 1 (Very Cold Days)
+  if (sw == 2) TC <- array(0,c(2,nlon,nlat,nyy)) 
+## Outputs: Very Hot and Very Cold Days
+### 3 HEATING, COOLING, ENERGY DEGREE-DAYS ############################################
+# HDDs cold 6 months, CDDs warm 6 months, EDDs entire year (within the same year)
+# HDD base temperature is 15.5°C, CDD base temperature is 22°C
+  if (sw == 3) DDD <- array(0,c(3,nlon,nlat,nyy))
+# Outputs: 1 (HDDs), 2 (CDDs), 3 (EDDs)
+### 4 - METEOROLOGICAL DROUGHT ########################################################
+# Spi is std precipitation index, Spei is std prec-evapotr index // Accumulation 12-month
+# We derive annual cumulated severity, months in drought, unprec years
+# We focus on events, but we do not provide the number of events as outputs
+# Output quantities (TDS, TDD, UNP) - Annual values (based on events, but on the 12 months)
+#  DR <- array(0,c(3,nlon,nlat,nyy)) ## Outputs: Tot Sev, Months in Dr, Unprec Year (future)
+# Output quantities are defined later, wihin the LOOP on drought indicators
+### 5 - RAINFALL EXTREMES #############################################################
+# RRx is the annual number of days with extreme rainfall (>= 99th percentile)
+# RR5d is the annual maximum cumulated rainfall over 5 days
+# RRu is the unprecedented cumulated 5d in the future (vs largest value in the past)
+  if (sw == 5) RRX <- array(0,c(3,nlon,nlat,nyy))
+# Outputs: RRx, RR5d, and RRu (future only)
+# Largest event in the past can be derived from RR5d (for hist vs hist-nat)
+### 6 - COMPOUND EVENTS ###############################################################
+# Compounds are derived from four daily extremes (days) and one monthly (DR, yes/no)
+# HW Heatwaves, CW Coldwaves, RX Extreme Rainfall (NNN includes number of days/month)
+# We also added WX as extreme wind speed, but it is computed on daily averages (not max)
+# DR is derived by the outputs of HAZ 4 (0 for no drought, < 0 for drought in that month)
+# NNN is a bridge variable, it is not written as output
+# New: NNN is read from Haz 1 and Haz 5, then partly computed in Haz 6 and merged with DR
+# Compound (CP) includes number of months with compound events (/year) for 6 compound types
+  if (sw == 6) CP <- array(0,c(6,nlon,nlat,nyy))
+# Outputs: CW-DR, HW-DR, RX-DR, CW-RX, HW-RX, (HW-DR-RX), RX-WX (compound)
+# We removed HW-DR-RX as it is a repetition of other compound events (and more rare)
+# We might include snowfall extremes in CW-SNX, but maybe at later stage, not now
+### 7 - HUMAN CLIMATE NICHE (BASIC) ###################################################
+# Four key variables and five time-frames (annual, 4 seasons), used for long-term climate
+  if (sw == 7) HCN <- array(NA,c(4,5,nlon,nlat,nyy))
+# Outputs: RR,TN,TX,TM for each time frame (per year) // No split by Hemisphere
+### 8 - CLIMATE CLASSIFICATION ########################################################
+# Classes/Values refer to 30-year averages (y-29 to y), so first 29y are always empty
+  if (sw == 8) AKG <- array(0,c(3,nlon,nlat,nyy))
+# Outputs: AI classes, AI values, KG macro-classes
+### 9 - WIND REGIMES (HAZARD, ENERGY, STORMS) #########################################
+# Number of days (/year) with average wind speed < 1 m/s, 3-18 m/s, > 10 m/s (1-3)
+# Cumulated annual value of mean daily wind speed above 3 m/s (but below 18 m/s) (4)
+# Average annual daily wind speed (5) 
+  if (sw == 9) WSP <- array(0,c(5,nlon,nlat,nyy))
+# 5 Outputs: days (1-3), cumulated (4), annual avg (5)
+# Beware: using only on-shore data limits the application for energy studies
+# Beware: using sfcwind (not sfcwindmax) and 0.5° limit the application for windstorms
+### 10 - FIRE DANGER ################################################################## 
+# Fire danger is moderate (Fire Weather Index > 10), high (> 20), extreme (> 50)
+# The thresholds we used are adapted from classic FWI classes (first two are lower here)
+  if (sw == 10) FDR <- array(0,c(2,nlon,nlat,nyy)) 
+# Outputs: moderate, high, extreme fire danger (days/year)
+# Beware: we use TX (as T at noon), but we cannot use HU at noon or sfcwindmax
+# Consequently, the fire danger is likely to result in lower values than with classic FWI
+# We discarded Fire Extreme Days because values can't go that high without inputs at noon
+### 11 - GROWING SEASON ###############################################################
+# Growing season starts with 5+ days with TM >= 5°C, ends when 5+ days with TM < 5°C
+# Growing season between last and first freeze (TN < 0°C) is the second output
+# Last freeze should be within the first 183 days, first freeze within the last 182
+# Growing Degree-Days (GDD) is the annual sum of TM > 5°C (cumulated, all-year round)
+# GDDg is withing growing season length (without considering freezes)
+  if (sw == 11) GGG <- array(0,c(4,nlon,nlat,nyy))
+# Outputs: GSL, GSL last-first freeze, GDD, GDD within GSL
+### 12 - SNOWFALL EXTREMES ############################################################
+# SNd is for snowy days (> 1cm) and SNh for heavy snow days (> 15cm)
+# TOT is for annual cumulated snowfall (maybe for winter only in later runs)
+# SN3d for annual maximum cumulated snowfall over 3 days
+# SNu for unprecedented 3-day snowfall events (future only)
+  if (sw == 12) SNF <- array(0,c(5,nlon,nlat,nyy))
+# We may use snowfall extremes also for compound events, but this is questionable
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### CORE LOOP 3 - FILES ###############################################################
+#######################################################################################
+  for (ff in nf[1]:nf[2]) {  ## LOOP 3 - Files (L3)
+#######################################################################################
+# Number of years for each chunk  
+   yf <- 10                             ## Usually 10-year chunks (also 2011-20 hist-nat)
+   if ((sc == 1) & (ff == 14)) yf <- 4  ## 4 years if 2011-2014 (hist)
+   if (ff == 15)               yf <- 6  ## 6 years if 2015-2020 (scen)
+#######################################################################################
+### INPUT FILES #######################################################################
+#######################################################################################
+## RR (CURRENT PERIOD - HAZ 4,5,6,7,8,10)
+   if (sw %in% c(4,5,6,7,8,10)) FF1 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[1],GEO,PER[ff])         ## RR (Kg/m2s)
+
+## TN and TX (CURRENT PERIOD - HAZ 1,2,3,4,6,7,8,10(TX),11)
+   if (sw %in% c(1,2,3,4,6,7,8,11))    FF2 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[2],GEO,PER[ff])  ## TN (°K)
+   if (sw %in% c(1,2,3,4,6,7,8,10,11)) FF3 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[3],GEO,PER[ff])  ## TX (°K)
+
+## TN and TX (NEXT YEAR - HAZ 1 (Jan-Mar), HAZ 11 (Jan-Jun))
+   if (sw %in% c(1,11)) { 
+    if (ff <= 13 | ff %in% c(15:22)) {  ## hist and hist-nat 1881-2010 and scenario 2021-2090
+     FF2x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[2],GEO,PER[ff+1])              ## TN (°K)
+     FF3x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[3],GEO,PER[ff+1])              ## TX (°K)
+    } else if (ff == 14) { 
+     if (sc == 2) {         ## hist-nat 2011-2020 (2020 is 2020 again)
+      FF2x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[2],GEO,PER[ff])               ## TN (°K)
+      FF3x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[3],GEO,PER[ff])               ## TX (°K)
+     } else if (sc == 1) {  ## hist 2011-2014 (we use SSP1-2.6 for 2015)
+      FF2x <- paste0(GCM[g],BIA,SCN[g,4],VAR[2],GEO,PER[ff+1])              ## TN (°K)  
+      FF3x <- paste0(GCM[g],BIA,SCN[g,4],VAR[3],GEO,PER[ff+1]) }            ## TX (°K)  
+    } else if (ff == 23) {  ## Scen 2091-2100 (2100 is 2100 again)
+     FF2x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[2],GEO,PER[ff])                ## TN (°K) 
+     FF3x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[3],GEO,PER[ff]) }}             ## TX (°K)
+
+## HU (CURRENT PERIOD - HAZ 2,10) // Not available for some scenarios
+   if (sw %in% c(2,10)) FF4 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[4],GEO,PER[ff])      ## HU (%)
+
+## WN (CURRENT PERIOD - HAZ 2,6,9,10) // Limited availability for a scenario
+   if (sw %in% c(2,6,9,10)) FF5 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[5],GEO,PER[ff])  ## WN (m/s)
+
+## SN (CURRENT PERIOD - HAZ 12)
+   if (sw == 12) FF6 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[6],GEO,PER[ff])             ## SN (Kg/m2s)
+
+## SN (NEXT YEAR - HAZ 12 (Jan-Jun))
+   if (sw == 12) { 
+    if (ff <= 13 | ff %in% c(15:22)) {  ## hist and hist-nat 1881-2010 and scenario 2021-2090
+     FF6x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[6],GEO,PER[ff+1])              ## SN (Kg/m2s)
+    } else if (ff == 14) { 
+     if (sc == 2) {         ## hist-nat 2011-2020 (2020 is 2020 again)
+      FF6x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[6],GEO,PER[ff])               ## SN (Kg/m2s)
+     } else if (sc == 1) {  ## hist 2011-2014 (we use SSP1-2.6 for 2015)
+      FF6x <- paste0(GCM[g],BIA,SCN[g,4],VAR[6],GEO,PER[ff+1]) }            ## SN (Kg/m2s)    
+    } else if (ff == 23) {  ## Scen 2091-2100 (2100 is 2100 again)
+      FF6x <- paste0(GCM[g],BIA,SCN[g,sc],VAR[6],GEO,PER[ff]) }}            ## SN (Kg/m2s)
+
+# OPEN THE NCDF FILES
+   if (sw %in% c(4,5,6,7,8,10))        AA1  <- nc_open(FF1)  
+   if (sw %in% c(1,2,3,4,6,7,8,11))    AA2  <- nc_open(FF2)
+   if (sw %in% c(1,2,3,4,6,7,8,10,11)) AA3  <- nc_open(FF3)
+   if (sw %in% c(1,11))                AA2x <- nc_open(FF2x)
+   if (sw %in% c(1,11))                AA3x <- nc_open(FF3x)
+   if (sw %in% c(2,10))                AA4  <- nc_open(FF4)
+   if (sw %in% c(2,6,9,10))            AA5  <- nc_open(FF5)
+   if (sw == 12)                       AA6  <- nc_open(FF6)
+   if (sw == 12)                       AA6x <- nc_open(FF6x)
+
+## LON-LAT READING (1/2) - First file in the hist block (once)
+   if ((sc == 1) & (ff == 1) & (sw != 10)) { 
+    if (sw %in% c(1,2,3,4,7,8,11)) AAA <- AA3
+    if (sw ==  5) AAA <- AA1
+    if (sw %in% c(6,9)) AAA <- AA5
+    if (sw == 12) AAA <- AA6
+    X <- ncvar_get(AAA,"lon")  
+    Y <- ncvar_get(AAA,"lat") }
+## LON-LAT READING (1/2) - Exception for Hazard 10 (read X and Y for each run)
+   if (sw == 10) {
+    AAA <- AA3
+    X <- ncvar_get(AAA,"lon")  
+    Y <- ncvar_get(AAA,"lat") }
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### CORE LOOP 4 - YEARS ###############################################################
+#######################################################################################
+   for (yy in 1:yf) {  ## LOOP 4 - YEARS (within Files) (L4)
+#######################################################################################
+## POINTERS (ALL HAZARDS)
+# Years (yc is the counter and the position in the outputs) 
+    if (ff <= 14) yc <- yy + 10*(ff-1)  ## From 1881 to 2014 (hist) or 2020 (hist-nat)
+    if (ff == 15) yc <- 134 + yy        ## 2015-2020 (scenarios)
+    if (ff >= 16) yc <- yy + 10*(ff-2)  ## From 2021 (scenarios)
+# Months
+    mc <- 1 + 12*(yc-1)  ## Month's counter (January, "current" year)
+# Days
+    if  (yy == 1)                           DDi <- array(0,c(10))   ## Starting position of each year (for the daily values)
+    if ((yy == 1) & (((yc + 3) %% 4) == 0)) DDi[1:10] <- D1i[1:10]  ## Jan 1 for 10 years (fourth year is leap)
+    if ((yy == 1) & (((yc + 1) %% 4) == 0)) DDi[1:10] <- D2i[1:10]  ## Jan 1 for 10 years (second year is leap)
+    print(c("Year",yc+1880))  ## Third checkpoint (Years, key checkpoint)
+
+# DAYS (READING only - Leap used for HAZ 1 and 11)
+    nd1 <- 365                      ## 365 days in a year
+    if ((yc %% 4) == 0) nd1 <- 366  ## 366 days in leap years
+    if (yc ==  20)      nd1 <- 365  ## 1900 is special (not leap)
+    if (yc == 220)      nd1 <- 365  ## 2100 is special (not leap)
+
+## BRIDGE VARIABLES (HAZ 1, 4, 5, 11)
+    if (sw == 1) {
+# Extended Haz 1
+     if (extd == 2) {
+      TTY <- array(NA,c(4,nlon,nlat,183)) ## 1 is TNW, 2 is TNS, 3 is TXW, 4 is TXS (183 days)
+      ww  <- array(0,c(5,4))   ## 5 types of extreme, then 4 is num events, num days, largest event, and unprec event (fut)
+      ss  <- array(0,c(5,2)) } ## Sum and switch (unprec event) values for the 5 extremes
+# Reduced Haz 1
+     if (extd == 1) { 
+      TTY <- array(NA,c(2,nlon,nlat,183)) ## 1 is TNW, 2 is TXS (183 days)
+      ww  <- array(0,c(2,4))   ## 2 types of extreme, then 4 is num events, num days, largest event, and unprec event (fut)
+      ss  <- array(0,c(2,2)) } ## Sum and switch (unprec event) values for the 2 extremes
+     asd <- 0 }
+# Hazard 4-5-11-12
+    if (sw == 4) {
+     MTN <- array(NA,c(12))   ## Monthly TN (Current year and grid point)
+     MTX <- array(NA,c(12)) } ## Monthly TX (Current year and grid point)
+    if (sw == 5) {
+     ww  <- array(0,c(3)) }   ## Numb of extreme days, 5-day tot, unprec events
+    if (sw == 11) {
+     TTY <- array(NA,c(3,nlon,nlat,nd)) } ## 1 is TN, 2 is TM, 3 is TX (reorganized)
+    if (sw == 12) {
+     TTY <- array(NA,c(nlon,nlat,nd)) }   ## SN (reorganized for shifted year if necessary)
+#######################################################################################
+## READING THE INPUTS - CURRENT YEAR
+    if (sw %in% c(4,5,6,7,8,10)) { 
+     RR <- ncvar_get(AA1,VAR[1],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## RR - CURRENT YEAR 
+    if (sw %in% c(1,2,3,4,6,7,8,11)) { 
+     TN <- ncvar_get(AA2,VAR[2],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## TN - CURRENT YEAR
+    if (sw %in% c(1,2,3,4,6,7,8,10,11)) { 
+     TX <- ncvar_get(AA3,VAR[3],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## TX - CURRENT YEAR
+    if (sw %in% c(2,10)) {
+     HU <- ncvar_get(AA4,VAR[4],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## HU - CURRENT YEAR
+    if (sw %in% c(2,6,9,10)) {
+     WN <- ncvar_get(AA5,VAR[5],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## WN - CURRENT YEAR
+    if (sw == 12) {
+     SN <- ncvar_get(AA6,VAR[6],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd1)) }  ## SN - CURRENT YEAR
+## READING THE INPUTS - NEXT YEAR   
+    if (sw ==  1)         bb <-  91
+    if (sw %in% c(11,12)) bb <- 182 
+    if (sw %in% c(1,11)) {     ## Heat and Coldwawes, Growing Season                
+     if (yy <   yf) TNx <- ncvar_get(AA2,VAR[2],start=c(1,1,DDi[yy+1]),count=c(nlon,nlat,bb))  ## TN - NEXT YEAR
+     if (yy <   yf) TXx <- ncvar_get(AA3,VAR[3],start=c(1,1,DDi[yy+1]),count=c(nlon,nlat,bb))  ## TX - NEXT YEAR
+     if (yy ==  yf) TNx <- ncvar_get(AA2x,VAR[2],start=c(1,1,1),count=c(nlon,nlat,bb))         ## TN - NEXT YEAR - Other file
+     if (yy ==  yf) TXx <- ncvar_get(AA3x,VAR[3],start=c(1,1,1),count=c(nlon,nlat,bb))         ## TX - NEXT YEAR - Other file          
+     if ((sc == 2) & (yy == 140)) TNx <- ncvar_get(AA2x,VAR[2],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))  ## TN 2020 - Hist-nat
+     if ((sc == 2) & (yy == 140)) TXx <- ncvar_get(AA3x,VAR[3],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))  ## TX 2020 - Hist-nat
+     if (yc == nyy) TNx <- ncvar_get(AA2x,VAR[2],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))    ## TN 2100 - Scen
+     if (yc == nyy) TNx <- ncvar_get(AA3x,VAR[3],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))    ## TX 2100 - Scen
+     asd <- 0 }  
+     if (sw == 12) {           ## Snowfall
+      if (yy <   yf) SNx <- ncvar_get(AA6,VAR[6],start=c(1,1,DDi[yy+1]),count=c(nlon,nlat,bb))  ## SN - NEXT YEAR
+      if (yy ==  yf) SNx <- ncvar_get(AA6x,VAR[6],start=c(1,1,1),count=c(nlon,nlat,bb))         ## SN - NEXT YEAR - Other file         
+      if ((sc == 2) & (yy == 140)) SNx <- ncvar_get(AA6x,VAR[6],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))  ## TN 2020 - Hist-nat   
+      if (yc == nyy) SNx <- ncvar_get(AA6x,VAR[6],start=c(1,1,DDi[yy]),count=c(nlon,nlat,bb))   ## SN 2100 - Scen
+      asd <- 0 }
+#######################################################################################
+
+#######################################################################################
+## REORGANIZE THE INPUT DATA (HAZ 1,4,11,12) ##########################################
+#######################################################################################
+## SIX-MONTH DATA SET UP FOR "CURRENT" YEAR (HAZ 1) ###################################
+    if (sw == 1) {  ## (L5)
+     for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+      for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+### TEST ###
+#       if ((i != xix) | (j != yiy)) next
+### TEST ###
+       if (is.na(TN[i,j,1])) next  ## Skip grid points over the sea
+       if (j <= 180) {  ## Northern Hemisphere (L8)
+        if (extd == 2) {   ## Haz 1 (Extended)
+         TTY[1,i,j, 1: 92] <- conv + TN[i,j,(nd1-91):nd1] ## TN Autumn (current year)
+         TTY[1,i,j,93:183] <- conv + TNx[i,j,1:91]        ## TN Winter (next year)
+         TTY[2,i,j, 1:183] <- conv + TN[i,j,91:273]       ## TN Spring-Summer (current year)
+         TTY[3,i,j, 1: 92] <- conv + TX[i,j,(nd1-91):nd1] ## TX Autumn (current year)
+         TTY[3,i,j,93:183] <- conv + TXx[i,j,1:91]        ## TX Winter (next year)
+         TTY[4,i,j, 1:183] <- conv + TX[i,j,91:273] }     ## TX Spring-Summer (current year)
+        if (extd == 1) {   ## Haz 1 (Reduced)
+         TTY[1,i,j, 1: 92] <- conv + TN[i,j,(nd1-91):nd1] ## TN Autumn (current year)
+         TTY[1,i,j,93:183] <- conv + TNx[i,j,1:91]        ## TN Winter (next year)
+         TTY[2,i,j, 1:183] <- conv + TX[i,j,91:273] }     ## TX Spring-Summer (current year)
+        if ((sc + ff + yy) == 3) {  ## Set the percentiles (NH), only once
+         if (extd == 2) {  ## Haz 1 (Extended)
+          PTT[1,i,j, 1: 92] <- ATT[1,i,j,(nd-91):nd]      ## PTT 1 becomes TN10 Autumn-Winter
+          PTT[1,i,j,93:183] <- ATT[1,i,j,  1: 91]    
+          PTT[2,i,j, 1: 92] <- ATT[2,i,j,(nd-91):nd]      ## PTT 2 becomes TN90 Autumn-Winter
+          PTT[2,i,j,93:183] <- ATT[2,i,j,  1: 91]    
+          PTT[3,i,j, 1:183] <- ATT[3,i,j, 91:273]         ## PTT 3 becomes TX10 Spring-Summer
+          PTT[4,i,j, 1:183] <- ATT[4,i,j, 91:273]         ## PTT 4 becomes TX90 Spring-Summer
+          PTT[5,i,j, 1:183] <- ATT[5,i,j, 91:273] }       ## PTT 5 becomes TX95 Spring-Summer
+         if (extd == 1) {  ## Haz 1 (Reduced)
+          PTT[1,i,j, 1: 92] <- ATT[1,i,j,(nd-91):nd]      ## PTT 1 becomes TN10 Autumn-Winter
+          PTT[1,i,j,93:183] <- ATT[1,i,j,  1: 91]         
+          PTT[2,i,j, 1:183] <- ATT[2,i,j, 91:273] }       ## PTT 2 becomes TX90 Spring-Summer
+         asd <- 0 } 
+       } else if (j > 180) {  ## Southern Hemisphere (reversed from NH)
+        if (extd == 2) {   ## Haz 1 (Extended)
+         TTY[1,i,j, 1:183] <- conv + TN[i,j,91:273]       ## TN Autumn-Winter (current year)
+         TTY[2,i,j, 1: 92] <- conv + TN[i,j,(nd1-91):nd1] ## TN Spring (current year)
+         TTY[2,i,j,93:183] <- conv + TNx[i,j,1:91]        ## TN Summer (next year)
+         TTY[3,i,j, 1:183] <- conv + TX[i,j,91:273]       ## TX Autumn-Winter (current year)
+         TTY[4,i,j, 1: 92] <- conv + TX[i,j,(nd1-91):nd1] ## TX Spring (current year)  
+         TTY[4,i,j,93:183] <- conv + TXx[i,j,1:91] }      ## TX Summer (next year)
+        if (extd == 1) {   ## Haz 1 (Reduced)
+         TTY[1,i,j, 1:183] <- conv + TN[i,j,91:273]       ## TN Autumn-Winter (current year)
+         TTY[2,i,j, 1: 92] <- conv + TX[i,j,(nd1-91):nd1] ## TX Spring (current year)  
+         TTY[2,i,j,93:183] <- conv + TXx[i,j,1:91] }      ## TX Summer (next year)
+        if ((sc + ff + yy) == 3) {  ## Set the percentiles (SH), only once
+         if (extd == 2) {  ## Haz 1 (Extended)
+          PTT[1,i,j, 1:183] <- ATT[1,i,j, 91:273]         ## PTT 1 becomes TN10 Autumn-Winter 
+          PTT[2,i,j, 1:183] <- ATT[2,i,j, 91:273]         ## PTT 2 becomes TN900 Autumn-Winter
+          PTT[3,i,j, 1: 92] <- ATT[3,i,j,274:365]         ## PTT 3 becomes TX10 Spring-Summer
+          PTT[3,i,j,93:183] <- ATT[3,i,j,  1: 91]
+          PTT[4,i,j, 1: 92] <- ATT[4,i,j,274:365]         ## PTT 4 becomes TX90 Spring-Summer
+          PTT[4,i,j,93:183] <- ATT[4,i,j,  1: 91] 
+          PTT[5,i,j, 1: 92] <- ATT[5,i,j,274:365]         ## PTT 5 becomes TX95 Spring-Summer
+          PTT[5,i,j,93:183] <- ATT[5,i,j,  1: 91] }
+         if (extd == 1) {  ## Haz 1 (Reduced)
+          PTT[1,i,j, 1:183] <- ATT[1,i,j, 91:273]         ## PTT 1 becomes TN10 Autumn-Winter 
+          PTT[2,i,j, 1: 92] <- ATT[2,i,j,274:365]         ## PTT 2 becomes TX90 Spring-Summer
+          PTT[2,i,j,93:183] <- ATT[2,i,j,  1: 91] }       
+         asd <- 0 }} }}  ## Close double if (8) and LOOPs L2-L1 (7-6)
+     rm(TN,TX,TNx,TXx)
+     if ((sc + ff + yy) == 3) rm(ATT)
+     gc() }  ## Close if on sw (5)
+#######################################################################################
+## MONTHLY RR AND PET (HAZ 4) #########################################################
+    if (sw == 4) {  ## (L5)
+# We initialize again the future for s5ov because it has no data in 2015-2040
+     if (s5ov == 1) RRM[1:nlon,1:nlat,(nmh+1):nmt] 
+     if (s5ov == 1) PETM[1:nlon,1:nlat,(nmh+1):nmt]
+# Lon-Lat Loops
+     for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+      for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+### TEST ###
+#       if ((i != xix) | (j != yiy)) next
+### TEST ###
+# LAT needed in matrix for PET function
+       if ((sc + ff + yy) == 3) {
+        LONx[i,j] <- X[i]
+        LATy[i,j] <- Y[j] }
+       if (is.na(TN[i,j,1])) next  ## Skip grid points over the sea
+# Monthly time series
+       for (im in 1:12)  {  ## LOOP M1 - Months (L8) 
+        dii <- DMi[im]            ## First day of the month under investigation
+        dff <- dii + MMi[im] - 1  ## Last day of the month under investigation
+        ym <- 12*(yc-1) + im      ## Position in the output RR series
+# RR SAVED FOR THE ENTIRE SERIES
+        if (sc != 2) RRM[i,j,ym]  <- rain*sum(RR[i,j,dii:dff],na.rm=TRUE)  ## Monthly RR 1881-2100 (except hist-nat)
+        if (sc == 2) RRMn[i,j,ym] <- rain*sum(RR[i,j,dii:dff],na.rm=TRUE)  ## Monthly RR 1881-2020 (hist-nat) 
+        MTN[im] <- conv + mean(TN[i,j,dii:dff],na.rm=TRUE)
+        MTX[im] <- conv + mean(TX[i,j,dii:dff],na.rm=TRUE) }  ## Close LOOP M1 (8)         
+# PET SAVED FOR THE ENTIRE SERIES
+       ymi <- 1 + 12*(yc-1)  ## First position in the output PET time series (current year)
+       if (sc != 2) PETM[i,j,ymi:(ymi+11)]  <- hargreaves(MTN[1:12],MTX[1:12],lat=LATy[i,j],na.rm=TRUE,verbose=FALSE)  ## Monthly PET 1881-2100 (except hist-nat)
+       if (sc == 2) PETMn[i,j,ymi:(ymi+11)] <- hargreaves(MTN[1:12],MTX[1:12],lat=LATy[i,j],na.rm=TRUE,verbose=FALSE)  ## Monthly PET 1881-2020 (hist-nat) 
+       asd <- 0  }} }  ## Close LOOPS L2-L1 and if on sw (4)
+# We will use RRM and PETM (monthly, 1881-2100, entire series) once we close LOOPS 4-3
+#######################################################################################
+## 12-MONTH DATA SET UP FOR "CURRENT" YEAR (HAZ 11) ###################################
+    if (sw == 11) {
+     for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+      for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+### TEST ###
+#       if ((i != xix) | (j != yiy)) next
+### TEST ###
+       if (is.na(TN[i,j,1])) next  ## Skip grid points over the sea
+       if (j <= 180) {        ## Northern Hemisphere
+        TTY[1,i,j,1:nd] <- conv + TN[i,j,1:nd]  ## TN current year
+        TTY[3,i,j,1:nd] <- conv + TX[i,j,1:nd]  ## TX current year 
+       } else if (j > 180) {  ## Southern Hemisphere
+        TTY[1,i,j,1:183]  <- conv + TN[i,j,(nd1-182):nd1]  ## TN current year
+        TTY[1,i,j,184:nd] <- conv + TNx[i,j,1:182]         ## TN next year
+        TTY[3,i,j,1:183]  <- conv + TX[i,j,(nd1-182):nd1]  ## TX current year
+        TTY[3,i,j,184:nd] <- conv + TXx[i,j,1:182] }       ## TX next year
+       TTY[2,i,j,1:nd] <- 0.5*(TTY[1,i,j,1:nd] + TTY[3,i,j,1:nd])  ## TM all-year
+      asd <- 0 }} ## Close LOOPs L2-L1 (7-6)
+     rm(TN,TX,TNx,TXx)
+     gc() }  ## Close if on sw
+#######################################################################################
+## 12-MONTH DATA SET UP FOR "CURRENT" YEAR (HAZ 12) ###################################
+    if (sw == 12) {
+     for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+      for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+### TEST ###
+#       if ((i != xix) | (j != yiy)) next
+### TEST ###
+       if (is.na(SN[i,j,1])) next  ## Skip grid points over the sea
+       if (j <= 180) {        ## Northern Hemisphere
+        TTY[i,j,1:nd] <- rain*SN[i,j,1:nd]   ## SN current year (from kg/m2s to cm)
+       } else if (j > 180) {  ## Southern Hemisphere
+        TTY[i,j,1:183]  <- rain*SN[i,j,(nd1-182):nd1]  ## SN current year
+        TTY[i,j,184:nd] <- rain*SNx[i,j,1:182] }       ## SN next year
+      asd <- 0 }} ## Close LOOPs L2-L1 (7-6)
+     rm(SN,SNx)
+     gc() }  ## Close if on sw
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+## CORE CALCULATIONS ##################################################################
+#######################################################################################
+    if (sw != 4) {  ## Droughts excluded 
+     for (i in 1:nlon) {  ## LOOP L1 - Longitude (6)
+      for (j in 1:nlat) {  ## LOOP L2 - Latitude (7)
+### TEST ###
+#       if ((i != xix) | (j != yiy)) next
+### TEST ###
+
+# LON-LAT READING (2/2) - First year, first file, hist block (once)
+       if ((sc + ff + yy) == 3) {
+        LONx[i,j] <- X[i]
+        LATy[i,j] <- Y[j] }
+# LON-LAT READING (2/2) - Every run for Hazard 10 (Fire Danger)    
+      if (sw == 10) {
+       if (sxy == 0) {
+        LONx[i,j] <- X[i]
+        LATy[i,j] <- Y[j] }} 
+
+# SKIP THE SEA POINTS (ALL HAZ)
+       if (sw %in% c(1,11))     SK <- TTY[1,i,j,1]
+       if (sw %in% c(2,3))      SK <- TN[i,j,1]
+       if (sw %in% c(5,7,8,10)) SK <- RR[i,j,1]
+       if (sw %in% c(6,9))      SK <- WN[i,j,1]
+       if (sw == 12)            SK <- TTY[i,j,1]
+       if ((sw == 6) & is.na(SK)) PQ[i,j] <- 0  ## Special matrix for compound events
+       if (is.na(SK)) next
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 1 #####################################################################
+#######################################################################################
+       if (sw == 1) {
+#######################################################################################
+### Complete Hazard 1 - Five extremes ################################################# 
+#######################################################################################
+        if (extd == 2)  {    
+         ww[1:5,1:4] <- 0  ## Counters for output parameters
+         ss[1:5,1:2] <- 0  ## Counters (sums) for core computations
+## HAZ 1.1 - NIGHT COLDWAVE (TNW in TTY[1,], TN10 in PTT[1,]) #########################
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Cold season (6 months)
+          if (ii < jj) next   
+          if ( (TTY[1,i,j,ii]   <= PTT[1,i,j,ii])   & (TTY[1,i,j,ii+1] <= PTT[1,i,j,ii+1]) & (TTY[1,i,j,ii+2] <= PTT[1,i,j,ii+2]) &
+               (TTY[1,i,j,ii+3] <= PTT[1,i,j,ii+3]) & (TTY[1,i,j,ii+4] <= PTT[1,i,j,ii+4]) & max(TTY[1,i,j,ii:(ii+4)]) <= 0 ) {
+# We included the additional condition: TN < 0°C for all the 5 days
+           ww[1,1]   <- ww[1,1] + 1  ## Event counter
+           ss[1,1:2] <- 0  ## Sum (record event?) and switch (unprec?)
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[1,i,j,iii] >  PTT[1,i,j,iii]) | (TTY[1,i,j,iii] > 0)) break  ## The event is over      
+            ss[1,1] <- ss[1,1] + abs(TTY[1,i,j,iii] - PTT[1,i,j,iii])  ## Sum (event severity)
+            if (ss[1,1] >= ww[1,3]) ww[1,3] <- ss[1,1]            ## If larger than the largest, this event becomes the largest
+            if ((ff >= 15) & (ss[1,1] > wx[1,i,j])) ss[1,2] <- 1  ## Turn the switch on if the sum is larger than the largest event in the past (see below)
+            ww[1,2] <- ww[1,2] + 1 }  ## Days within the event // Close LOOP D2 
+           if (ss[1,2] == 1) ww[1,4] <- ww[1,4] + 1  ## We have an unprec event
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## HAZ 1.2 - DAY-NIGHT COLDWAVE (TNW&TXW in TTY[1&3,], TN10&TX10 in PTT[1&3,]) ########
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Cold season (6 months)
+          if (ii < jj) next
+          if ( (TTY[1,i,j,ii]   <= PTT[1,i,j,ii])   & (TTY[3,i,j,ii]   <= PTT[3,i,j,ii])   & 
+               (TTY[1,i,j,ii+1] <= PTT[1,i,j,ii+1]) & (TTY[3,i,j,ii+1] <= PTT[3,i,j,ii+1]) &
+               (TTY[1,i,j,ii+2] <= PTT[1,i,j,ii+2]) & (TTY[3,i,j,ii+2] <= PTT[3,i,j,ii+2]) &
+               (TTY[1,i,j,ii+3] <= PTT[1,i,j,ii+3]) & (TTY[3,i,j,ii+3] <= PTT[3,i,j,ii+3]) &
+               (TTY[1,i,j,ii+4] <= PTT[1,i,j,ii+4]) & (TTY[3,i,j,ii+4] <= PTT[3,i,j,ii+4]) &
+                max(TTY[1,i,j,ii:(ii+4)]) <= 0 ) {
+# We included the additional condition: TN < 0°C for all the 5 days
+           ww[2,1] <- ww[2,1] + 1
+           ss[2,1:2] <- 0
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[1,i,j,iii] > PTT[1,i,j,iii]) | (TTY[3,i,j,iii] > PTT[3,i,j,iii]) | 
+                (TTY[1,i,j,iii] > 0)) break 
+            ss[2,1] <- ss[2,1] + abs(TTY[1,i,j,iii] - PTT[1,i,j,iii]) + abs(TTY[3,i,j,iii] - PTT[3,i,j,iii])
+            if (ss[2,1] >= ww[2,3]) ww[2,3] <- ss[2,1] 
+            if ((ff >= 15) & (ss[2,1] > wx[2,i,j])) ss[2,2] <- 1  
+            ww[2,2] <- ww[2,2] + 1 }  ## Close LOOP D2
+           if (ss[2,2] == 1) ww[2,4] <- ww[2,4] + 1
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## HAZ 1.3 - DAY HEATWAVE (TXS in TTY[4,..], TX90 in PTT[4,..]) #######################
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Hot season (6 months)
+          if (ii < jj) next 
+          if ( (TTY[4,i,j,ii]   >= PTT[4,i,j,ii])   & (TTY[4,i,j,ii+1] >= PTT[4,i,j,ii+1]) & (TTY[4,i,j,ii+2] >= PTT[4,i,j,ii+2]) &
+               (TTY[4,i,j,ii+3] >= PTT[4,i,j,ii+3]) & (TTY[4,i,j,ii+4] >= PTT[4,i,j,ii+4]) & min(TTY[4,i,j,ii:(ii+4)]) >= 30 ) {
+# We included the additional condition: TX > 30°C for all the 5 days
+           ww[3,1]   <- ww[3,1] + 1
+           ss[3,1:2] <- 0
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[4,i,j,iii] < PTT[4,i,j,iii]) | (TTY[4,i,j,iii] < 30)) break
+            ss[3,1] <- ss[3,1] + abs(TTY[4,i,j,iii] - PTT[4,i,j,iii])
+            if (ss[3,1] >= ww[3,3]) ww[3,3] <- ss[3,1]
+            if ((ff >= 15) & (ss[3,1] > wx[3,i,j])) ss[3,2] <- 1  
+            ww[3,2] <- ww[3,2] + 1 }  ## Close LOOP D2
+           if (ss[3,2] == 1) ww[3,4] <- ww[3,4] + 1
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## HAZ 1.4 - DAY-NIGHT HEATWAVE (TNS&TXS in TTY[2&4,], TN90&TX90 in PTT[2&4,]) ########
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Hot season (6 months)
+          if (ii < jj) next
+          if ( (TTY[2,i,j,ii]   >= PTT[2,i,j,ii])   & (TTY[4,i,j,ii]   >= PTT[4,i,j,ii])   & 
+               (TTY[2,i,j,ii+1] >= PTT[2,i,j,ii+1]) & (TTY[4,i,j,ii+1] >= PTT[4,i,j,ii+1]) & 
+               (TTY[2,i,j,ii+2] >= PTT[2,i,j,ii+2]) & (TTY[4,i,j,ii+2] >= PTT[4,i,j,ii+2]) &             
+               (TTY[2,i,j,ii+3] >= PTT[2,i,j,ii+3]) & (TTY[4,i,j,ii+3] >= PTT[4,i,j,ii+3]) & 
+               (TTY[2,i,j,ii+4] >= PTT[2,i,j,ii+4]) & (TTY[4,i,j,ii+4] >= PTT[4,i,j,ii+4]) & 
+               min(TTY[4,i,j,ii:(ii+4)]) >= 30 ) { 
+# We included the additional condition: TX > 30°C for all the 5 days
+           ww[4,1]   <- ww[4,1] + 1
+           ss[4,1:2] <- 0
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[2,i,j,iii] < PTT[2,i,j,iii]) | (TTY[4,i,j,iii] < PTT[4,i,j,iii]) |
+                (TTY[4,i,j,iii] < 30)) break
+            ss[4,1] <- ss[4,1] + abs(TTY[2,i,j,iii] - PTT[2,i,j,iii]) + abs(TTY[4,i,j,iii] - PTT[4,i,j,iii])
+            if (ss[4,1] >= ww[4,3]) ww[4,3] <- ss[4,1]
+            if ((ff >= 15) & (ss[4,1] > wx[4,i,j])) ss[4,2] <- 1  
+            ww[4,2] <- ww[4,2] + 1 }  ## Close LOOP D2
+           if (ss[4,2] == 1) ww[4,4] <- ww[4,4] + 1
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## HAZ 1.5 - EXTREME HEATWAVE (TXS in TTY[4,], TX95 in PTT[5,]) #######################
+         jj <- 1
+         for (ii in 1:(183-6)) {  ## LOOP D1 - Hot season (6 months)
+          if (ii < jj) next
+          if ( (TTY[4,i,j,ii]   >= PTT[5,i,j,ii  ]) & (TTY[4,i,j,ii+1] >= PTT[5,i,j,ii+1]) & 
+               (TTY[4,i,j,ii+2] >= PTT[5,i,j,ii+2]) & (TTY[4,i,j,ii+3] >= PTT[5,i,j,ii+3]) & 
+               (TTY[4,i,j,ii+4] >= PTT[5,i,j,ii+4]) & (TTY[4,i,j,ii+5] >= PTT[5,i,j,ii+5]) & 
+               (TTY[4,i,j,ii+6] >= PTT[5,i,j,ii+6]) & min(TTY[4,i,j,ii:(ii+6)]) >= 35 ) {
+# We included the additional condition: TX > 35°C for all the 5 days
+           ww[5,1] <- ww[5,1] + 1
+           ss[5,1:2] <- 0
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[4,i,j,iii] <  PTT[5,i,j,iii]) | (TTY[4,i,j,iii] < 35)) break
+            ss[5,1] <- ss[5,1] + abs(TTY[4,i,j,iii] - PTT[5,i,j,iii])
+            if (ss[5,1] >= ww[5,3]) ww[5,3] <- ss[5,1]
+            if ((ff >= 15) & (ss[5,1] > wx[5,i,j])) ss[5,2] <- 1  
+            ww[5,2] <- ww[5,2] + 1 }  ## Close LOOP D2
+           if (ss[5,2] == 1) ww[5,4] <- ww[5,4] + 1
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## MOST SEVERE EVENT (PAST) ###########################################################
+         if ((sc == 1) & (ff <= 14)) { 
+          for (k in 1:5) {  ## LOOP K1 - Five types of events
+           if (ww[k,3] > wx[k,i,j]) wx[k,i,j] <- ww[k,3]
+           asd <- 0 } }  ## Close if, LOOP K1
+## STORE THE OUPUTS ###################################################################
+         for (kk in 1:5) {  ## LOOP K1 - Five types of event
+          for (pp in 1:4) {  ## LOOP P1 - Three (+1) outputs for each type of event (and year)
+           CHW[kk,pp,i,j,yc] <- ww[kk,pp] }} }  ## Close  LOOPs P1-K1 and if on extended Hazard 1 (extd == 2)
+#######################################################################################
+### Reduced Hazard 1 - Two extremes ###################################################
+#######################################################################################
+        if (extd == 1)  {    
+         ww[1:2,1:4] <- 0  ## Counters for output parameters
+         ss[1:2,1:2] <- 0  ## Counters (sums) for core computations
+## HAZ 1r.1 - NIGHT COLDWAVE (TNW in TTY[1,], TN10 in PTT[1,]) ########################
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Cold season (6 months)
+          if (ii < jj) next   
+          if ( (TTY[1,i,j,ii]   <= PTT[1,i,j,ii])   & (TTY[1,i,j,ii+1] <= PTT[1,i,j,ii+1]) & (TTY[1,i,j,ii+2] <= PTT[1,i,j,ii+2]) &
+               (TTY[1,i,j,ii+3] <= PTT[1,i,j,ii+3]) & (TTY[1,i,j,ii+4] <= PTT[1,i,j,ii+4]) & max(TTY[1,i,j,ii:(ii+4)]) <= 0 ) {
+# We included the additional condition: TN < 0°C for all the 5 days
+           ww[1,1]   <- ww[1,1] + 1  ## Event counter
+           ss[1,1:2] <- 0  ## Sum (record event?) and switch (unprec?)
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[1,i,j,iii] >  PTT[1,i,j,iii]) | (TTY[1,i,j,iii] > 0)) break  ## The event is over      
+            ss[1,1] <- ss[1,1] + abs(TTY[1,i,j,iii] - PTT[1,i,j,iii])  ## Sum (event severity)
+            if (ss[1,1] >= ww[1,3]) ww[1,3] <- ss[1,1]            ## If larger than the largest, this event becomes the largest
+            if ((ff >= 15) & (ss[1,1] > wx[1,i,j])) ss[1,2] <- 1  ## Turn the switch on if the sum is larger than the largest event in the past (see below)
+            ww[1,2] <- ww[1,2] + 1 }  ## Days within the event // Close LOOP D2 
+           if (ss[1,2] == 1) ww[1,4] <- ww[1,4] + 1  ## We have an unprec event
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## HAZ 1r.2 - DAY HEATWAVE (TXS in TTY[2,..], TX90 in PTT[2,..]) #######################
+         jj <- 1
+         for (ii in 1:(183-4)) {  ## LOOP D1 - Hot season (6 months)
+          if (ii < jj) next 
+          if ( (TTY[2,i,j,ii]   >= PTT[2,i,j,ii])   & (TTY[2,i,j,ii+1] >= PTT[2,i,j,ii+1]) & (TTY[2,i,j,ii+2] >= PTT[2,i,j,ii+2]) &
+               (TTY[2,i,j,ii+3] >= PTT[2,i,j,ii+3]) & (TTY[2,i,j,ii+4] >= PTT[2,i,j,ii+4]) & min(TTY[2,i,j,ii:(ii+4)]) >= 30 ) {
+# We included the additional condition: TX > 30°C for all the 5 days
+           ww[2,1]   <- ww[2,1] + 1
+           ss[2,1:2] <- 0
+           for (iii in ii:183) {  ## LOOP D2 - Inside the event
+            jj <- iii + 1
+            if ((TTY[2,i,j,iii] < PTT[2,i,j,iii]) | (TTY[2,i,j,iii] < 30)) break
+            ss[2,1] <- ss[2,1] + abs(TTY[2,i,j,iii] - PTT[2,i,j,iii])
+            if (ss[2,1] >= ww[2,3]) ww[2,3] <- ss[2,1]
+            if ((ff >= 15) & (ss[2,1] > wx[2,i,j])) ss[2,2] <- 1  
+            ww[2,2] <- ww[2,2] + 1 }  ## Close LOOP D2
+           if (ss[2,2] == 1) ww[2,4] <- ww[2,4] + 1
+           asd <- 0 } }  ## Close if (event) and LOOP D1
+## MOST SEVERE EVENT (PAST) ###########################################################
+         if ((sc == 1) & (ff <= 14)) { 
+          for (k in 1:2) {  ## LOOP K1 - Two types of events
+           if (ww[k,3] > wx[k,i,j]) wx[k,i,j] <- ww[k,3]
+           asd <- 0 } }  ## Close if, LOOP K1
+## STORE THE OUPUTS ###################################################################
+         for (kk in 1:2) {  ## LOOP K1 - Two types of event
+          for (pp in 1:4) {  ## LOOP P1 - Three (+1) outputs for each type of event (and year)
+           CHW[kk,pp,i,j,yc] <- ww[kk,pp] }} } }  ## Close  LOOPs P1-K1 and if on reduced Haz 1 (extd == 1) and on Haz 1 (sw == 1)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 2 #####################################################################
+#######################################################################################
+       if (sw == 2) {
+        for (k in 1:nd) {  ## LOOP D1 - Days (Core loop)
+         TM <- conv + 0.5*(TN[i,j,k] + TX[i,j,k])  ## TM (daily)
+# NET EFFECTIVE TEMPERATURE
+         NET <- 37 - 0.29*TM*(1 - 0.01*HU[i,j,k]) - (37 - TM)/(0.68 - 0.0014*HU[i,j,k] + 1/(1.76 + 1.4*(WN[i,j,k]^0.75)))
+# VERY HOT AND COLD DAYS
+         if (NET > 27) TC[1,i,j,yc] <- TC[1,i,j,yc] + 1  ## VERY HOT DAYS (VHD)
+         if (NET <  1) TC[2,i,j,yc] <- TC[2,i,j,yc] + 1  ## VERY COLD DAYS (VCD)
+         asd <- 0 } }  ## Close LOOP D1 and major if (sw == 2)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 3 #####################################################################
+#######################################################################################
+       if (sw == 3) {
+## BASE TEMPERATURES (UK MET-OFFICE)
+        HTB <- 15.5  ## Base temperature for HDDs
+        CTB <- 22    ## Base temperature for CDDs
+## CORE LOOP ON DAYS
+        for (k in 1:nd) {  ## LOOP D1 - Days (Current Year)
+         TTN <- conv + TN[i,j,k]  ## TN in °C (daily value)
+         TTX <- conv + TX[i,j,k]  ## TX in °C (daily value)
+         TTM <- 0.5*(TTN + TTX)   ## TM in °C (daily value)
+         if (TTN > TTX) next  ## Condition on bad data
+## JAN-MAR and OCT-DEC (HDDs for NH, CDDs for SH)
+         if ((k <= 91) | (k >= 274)) {
+          if (j <= 180) {        ## Northern Hemisphere (Winter, Heating) 
+           if  (TTX <= HTB)                DDD[1,i,j,yc] <- DDD[1,i,j,yc] + HTB - TTM
+           if ((TTM <= HTB) & (TTX > HTB)) DDD[1,i,j,yc] <- DDD[1,i,j,yc] + 0.5*(HTB - TTN) - 0.25*(TTX - HTB)
+           if ((TTN <  HTB) & (TTM > HTB)) DDD[1,i,j,yc] <- DDD[1,i,j,yc] + 0.25*(HTB - TTN) 
+           if  (TTN >= HTB)                DDD[1,i,j,yc] <- DDD[1,i,j,yc]
+          } else if (j > 180) {  ## Southern Hemisphere (Summer, Cooling) 
+           if  (TTX <= CTB)                DDD[2,i,j,yc] <- DDD[2,i,j,yc]
+           if ((TTM <= CTB) & (TTX > CTB)) DDD[2,i,j,yc] <- DDD[2,i,j,yc] + 0.25*(TTX - CTB)
+           if ((TTN <  CTB) & (TTM > CTB)) DDD[2,i,j,yc] <- DDD[2,i,j,yc] + 0.5*(TTX - CTB) - 0.25*(CTB - TTN) 
+           if  (TTN >= CTB)                DDD[2,i,j,yc] <- DDD[2,i,j,yc] + TTM - CTB 
+           asd <- 0 }}
+## APR-SEP (CDDs for NH, HDDs for SH)
+         if ((k >= 91) & (k < 274)) {
+          if (j <= 180) {        ## Northern Hemisphere (Summer, Cooling) 
+           if  (TTX <= CTB)                DDD[2,i,j,yc] <- DDD[2,i,j,yc]
+           if ((TTM <= CTB) & (TTX > CTB)) DDD[2,i,j,yc] <- DDD[2,i,j,yc] + 0.25*(TTX - CTB)
+           if ((TTN <  CTB) & (TTM > CTB)) DDD[2,i,j,yc] <- DDD[2,i,j,yc] + 0.5*(TTX - CTB) - 0.25*(CTB - TTN) 
+           if  (TTN >= CTB)                DDD[2,i,j,yc] <- DDD[2,i,j,yc] + TTM - CTB
+          } else if (j > 180) {  ## Southern Hemisphere (Winter, Heating) 
+           if  (TTX <= HTB)                DDD[1,i,j,yc] <- DDD[1,i,j,yc] + HTB - TTM
+           if ((TTM <= HTB) & (TTX > HTB)) DDD[1,i,j,yc] <- DDD[1,i,j,yc] + 0.5*(HTB - TTN) - 0.25*(TTX - HTB)
+           if ((TTN <  HTB) & (TTM > HTB)) DDD[1,i,j,yc] <- DDD[1,i,j,yc] + 0.25*(HTB - TTN) 
+           if  (TTN >= HTB)                DDD[1,i,j,yc] <- DDD[1,i,j,yc] 
+           asd <- 0 }} } ## Close LOOP D1
+## JAN-DEC (EDDs for both NH and SH)
+        DDD[3,i,j,yc] <- DDD[1,i,j,yc] + DDD[2,i,j,yc]}  ##  Close major if (sw == 3)
+#######################################################################################
+
+### NO HAZARD 4 HERE ##################################################################
+
+#######################################################################################
+### CORE HAZARD 5 #####################################################################
+#######################################################################################
+       if (sw == 5) {      
+        ww[1:3] <- 0  ## Counters output parameters
+        for (k in 1:nd) {  ## LOOP D1 - DAYS (col 9)
+         if (is.finite(RR[i,j,k]) & (rain*RR[i,j,k] >= ATT[1,i,j,k])) ww[1] <- ww[1] + 1 
+                                                                           ## EXTREME 1 - RR99 (days)
+         if (k >= 5) {
+          ss <- sum(rain*RR[i,j,k:(k-4)],na.rm=TRUE)                                      
+          if (ss >= ww[2]) ww[2] <- ss                                     ## EXTREME 2 - RR5d (max)
+          asd <- 0 } }  ## Close if and LOOP D1 (9)
+# Most severe event from the past                 
+        if ((sc == 1) & (ww[2] >= wx[i,j])) wx[i,j] <- ww[2]  
+# Look for the unprecedented events in the future 
+        if (ff >= 15) {
+         kstop <- 5
+         for (kk in 5:nd) {  ## LOOP D2 - DAYS (10)
+          ks <- 0
+          if (kk < kstop) next
+          ks <- sum(rain*RR[i,j,kk:(kk-4)],na.rm=TRUE)
+          if (ks > wx[i,j]) {                                              ## EXTREME 3 - RRu (ev)
+           ww[3] <- ww[3] + 1                                      
+           kstop <- kk + 5 } 
+          asd <- 0 } }  ## Close LOOP D2 (10) and if (future; 9)
+# Store the parameters into the outputs
+        for (pp in 1:3) {  ## LOOP P1 - Three outputs (9)
+         RRX[pp,i,j,yc] <- ww[pp] } }  ## Close LOOPs P1 (9) and if on sw == 5 (8)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 6 (1/2) ###############################################################
+#######################################################################################
+       if (sw == 6) {
+## HAZ 6.1 - NIGHT COLDWAVE ###########################################################
+        jj <- 1
+        for (ii in 1:(nd-4)) {  ## LOOP D1 - Days (365 days)
+         my <- 12*(yc-1) + 1 + floor(ii/30.417) ## Position for the monthly outputs and the counters
+         if (ii < jj) next 
+         if (((conv + TN[i,j,ii])   <= ATT[2,i,j,ii])   & ((conv + TN[i,j,ii+1]) <= ATT[2,i,j,ii+1]) & 
+             ((conv + TN[i,j,ii+2]) <= ATT[2,i,j,ii+2]) & ((conv + TN[i,j,ii+3]) <= ATT[2,i,j,ii+3]) &
+             ((conv + TN[i,j,ii+4]) <= ATT[2,i,j,ii+4]) & (max(conv + TN[i,j,ii:(ii+4)]) <= 0)) {  ## Event detected
+          for (iii in ii:nd) {  ## LOOP D2 - Inside the event
+           jj <- iii + 1
+           if (((conv + TN[i,j,iii]) > ATT[2,i,j,iii]) | ((conv + TN[i,j,iii]) > 0)) break  ## The event is over
+           NNN[2,i,j,my] <- NNN[2,i,j,my] + 1
+           asd <- 0 } } } ## Close LOOP D2, if (event), LOOP D1
+## HAZ 6.2 - DAY HEATWAVE #############################################################
+        jj <- 1
+        for (ii in 1:(nd-4)) {  ## LOOP D1 - Days (365 days)
+         my <- 12*(yc-1) + 1 + floor(ii/30.417)
+         if (ii < jj) next
+         if (((conv + TX[i,j,ii])   >= ATT[3,i,j,ii])   & ((conv + TX[i,j,ii+1]) >= ATT[3,i,j,ii+1]) & 
+             ((conv + TX[i,j,ii+2]) >= ATT[3,i,j,ii+2]) & ((conv + TX[i,j,ii+3]) >= ATT[3,i,j,ii+3]) &
+             ((conv + TX[i,j,ii+4]) >= ATT[3,i,j,ii+4]) & (min(conv + TX[i,j,ii:(ii+4)]) >= 30)) {  ## Event detected
+          for (iii in ii:nd) {  ## LOOP D2 - Inside the event
+           jj <- iii + 1
+           if (((conv + TX[i,j,iii]) < ATT[3,i,j,iii]) | ((conv + TX[i,j,iii]) < 30)) break
+           NNN[3,i,j,my] <- NNN[3,i,j,my] + 1 
+           asd <- 0 } } } ## Close LOOP D2, if (event), LOOP D1
+## HAZ 6.3 & 6.4 - EXTR RAINFALL DAY and EXTR WIND DAY ################################
+        for (ii in 1:nd) {  ## LOOP D1 - Days (365 days)
+         my <- 12*(yc-1) + 1 + floor(ii/30.417)
+         if (rain*RR[i,j,ii] >= ATT[1,i,j,ii])  NNN[1,i,j,my] <- NNN[1,i,j,my] + 1
+         if (WN[i,j,ii]      >= ATT[4,i,j,ii])  NNN[4,i,j,my] <- NNN[4,i,j,my] + 1
+         asd <- 0 } } ## Close LOOP D1 and if on (sw == 6)
+# Core calculations for Hazard 6 continue in a special sections after closing LOOPs 4-3
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 7 #####################################################################
+#######################################################################################
+       if (sw == 7) {
+        for (ssn in 1:5) {  ## LOOP SS - Annual and Seasons (L9) // Not divided by Hemisphere 
+         if (ssn == 2) {  ## "Winter" (months 12,1,2) // Seasonal sum for rain, average for temperature
+          HCN[1,ssn,i,j,yc] <- rain*sum(RR[i,j,c(DSi[ssn]:DSf[ssn],DSi[6]:DSf[6])],na.rm=TRUE)    ## Kg/m2s into mm
+          HCN[2,ssn,i,j,yc] <- conv + mean(TN[i,j,c(DSi[ssn]:DSf[ssn],DSi[6]:DSf[6])],na.rm=TRUE) ## °K into °C
+          HCN[4,ssn,i,j,yc] <- conv + mean(TX[i,j,c(DSi[ssn]:DSf[ssn],DSi[6]:DSf[6])],na.rm=TRUE) ## °K into °C
+          HCN[3,ssn,i,j,yc] <- 0.5*(HCN[2,ssn,i,j,yc] + HCN[4,ssn,i,j,yc])                        ## °C
+         } else {          ## Annual or other seasons
+          HCN[1,ssn,i,j,yc] <- rain*sum(RR[i,j,DSi[ssn]:DSf[ssn]],na.rm=TRUE)
+          HCN[2,ssn,i,j,yc] <- conv + mean(TN[i,j,DSi[ssn]:DSf[ssn]],na.rm=TRUE)
+          HCN[4,ssn,i,j,yc] <- conv + mean(TX[i,j,DSi[ssn]:DSf[ssn]],na.rm=TRUE)
+          HCN[3,ssn,i,j,yc] <- 0.5*(HCN[2,ssn,i,j,yc] + HCN[4,ssn,i,j,yc]) } 
+         asd <- 0 } } ## Close LOOP SS (9) and if on sw
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 8 (1/2) - MONTHLY VALUES ##############################################
+#######################################################################################
+       if (sw == 8) {  
+        for (im in 1:12) { ## LOOP M1 - Months (9)  
+         dii <- DMi[im]            ## First day of the month under investigation
+         dff <- dii + MMi[im] - 1  ## Last day of the month under investigation
+         mcm <- mc + im - 1        ## Position in the monthly outputs (month)
+## Monthly RR (mm) and TN, TM, TX (°C)
+         if (sc != 2) { 
+          WCL[1,i,j,mcm] <- rain*sum(RR[i,j,dii:dff],na.rm=TRUE)     ## Monthly RR (mm)
+          WCL[2,i,j,mcm] <- conv + mean(TN[i,j,dii:dff],na.rm=TRUE)  ## Monthly TN (°C)
+          WCL[3,i,j,mcm] <- conv + mean(TX[i,j,dii:dff],na.rm=TRUE)  ## Monthly TX (°C)
+          WCL[4,i,j,mcm] <- 0.5*(WCL[2,i,j,mcm] + WCL[3,i,j,mcm]) }  ## Monthly TM (°C) 
+         if (sc == 2) {  ## Special case for hist-nat
+          WCLn[1,i,j,mcm] <- rain*sum(RR[i,j,dii:dff],na.rm=TRUE)
+          WCLn[2,i,j,mcm] <- conv + mean(TN[i,j,dii:dff],na.rm=TRUE)
+          WCLn[3,i,j,mcm] <- conv + mean(TX[i,j,dii:dff],na.rm=TRUE)
+          WCLn[4,i,j,mcm] <- 0.5*(WCLn[2,i,j,mcm] + WCLn[3,i,j,mcm]) } } ## Close if and LOOP M1 (9)
+## Monthly PET (mm)
+        if (sc != 2) WCL[5,i,j,mc:(mc+11)]  <- hargreaves(WCL[2,i,j,mc:(mc+11)],WCL[3,i,j,mc:(mc+11)],lat=LATy[i,j],na.rm=TRUE,verbose=FALSE)  
+        if (sc == 2) WCLn[5,i,j,mc:(mc+11)] <- hargreaves(WCLn[2,i,j,mc:(mc+11)],WCLn[3,i,j,mc:(mc+11)],lat=LATy[i,j],na.rm=TRUE,verbose=FALSE) 
+        asd <- 0 } ## Close if (sw)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 9 #####################################################################
+#######################################################################################
+       if (sw == 9) {
+# CALM DAYS (< 3 knots)
+        WSP[1,i,j,yc] <- length(WN[i,j,1:nd][!is.na(WN[i,j,1:nd]) & WN[i,j,1:nd] < 1.5])
+# OPTIMAL DAYS (FOR TURBINES; 3-10 m/s)
+        WSP[2,i,j,yc] <- length(WN[i,j,1:nd][!is.na(WN[i,j,1:nd]) & WN[i,j,1:nd] >=  3]) -
+                         length(WN[i,j,1:nd][!is.na(WN[i,j,1:nd]) & WN[i,j,1:nd] >= 18])     
+# STORMY DAYS (> 10 m/s)
+        WSP[3,i,j,yc] <- length(WN[i,j,1:nd][!is.na(WN[i,j,1:nd]) & WN[i,j,1:nd] >  10])
+# CUMULATED VALUE (between 3-18 m/s)
+        WSP[4,i,j,yc] <- sum(- 3 + WN[i,j,1:nd][WN[i,j,1:nd] >=  3],na.rm=TRUE) -
+                         sum(- 3 + WN[i,j,1:nd][WN[i,j,1:nd] >= 18],na.rm=TRUE)
+# ANNUAL AVERAGE (m/s)
+        WSP[5,i,j,yc] <- mean(WN[i,j,1:nd],na.rm=TRUE) }  ## Close if on sw
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 10 ####################################################################
+#######################################################################################
+       if (sw == 10) {    
+# Input/output variables for FWI.FBP package (re-initialized for every grid point)
+        temp <- array(NA,c(nd))  ## TX
+        rh   <- array(NA,c(nd))  ## HU
+        ws   <- array(NA,c(nd))  ## WN (to avoid confusion, this "ws" is filled by WN data
+        prec <- array(NA,c(nd))  ## RR
+        lat  <- array(NA,c(nd))  ## LAT
+        long <- array(NA,c(nd))  ## LON
+# Assign monthly labels to days (We do for each year to split Haz 10 in multiple runs)
+        for (k in 1:nd) {  ## LOOP D1 - DAYS (9)
+#         if ((g + sc + ff + yy) == 4) {
+         mon[k] <- 1 + floor(k/30.417)  ## Position for the monthly outputs and the counters
+#          asd <- 0 }
+# Convert variables into vectors for fwi function
+         lat[k]  <- LATy[i,j]         ## LAT
+         long[k] <- LONx[i,j]         ## LON
+         temp[k] <- conv + TX[i,j,k]  ## TX (°K to °C)
+         rh[k]   <- HU[i,j,k]         ## HU (%)
+         ws[k]   <- wsp*WN[i,j,k]     ## WN (m/s to km/h)
+         prec[k] <- rain*RR[i,j,k] }  ## RR (kgm2/s to mm/day) // ## Close LOOP D1 (9)
+# Input dataframe for fwi function (vectors with 365 values)
+        df <- data.frame(lat,long,mon,temp,rh,ws,prec)
+# FWI with verbose R package (cffrds removed, so we used this package with a new pdated version)
+        FW <- suppressWarnings(fwi(df,yda.fwi=NULL,init=c(ffmc_yda=85,dmc_yda=6,dc_yda=15),out="fwi",lat.adjust="TRUE"))
+# Fire Danger values // FW has nd rows and 7 cols, COL 6 is FWI
+        FDR[1,i,j,yc] <- length(FW[1:nd,6][!is.na(FW[1:nd,6]) & FW[1:nd,6] > 10])  ## MODERATE DANGER
+        FDR[2,i,j,yc] <- length(FW[1:nd,6][!is.na(FW[1:nd,6]) & FW[1:nd,6] > 20])  ## HIGH DANGER
+#        FDR[3,i,j,yc] <- length(FW[1:nd,6][!is.na(FW[1:nd,6]) & FW[1:nd,6] > 30])  ## EXTREME DANGER
+        asd <- 0 } ## Close if (sw)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 11 ####################################################################
+#######################################################################################
+       if (sw == 11) {
+## HAZ 11.1 - GSL (Classic) ###########################################################
+        switch <- 0  ## Are we inside the GSL? 
+        ki <- 366  ## The GS does not start (hypothetic)
+        km <- 184  ## First day of second semester (where GS can end)
+        kf <- 365  ## The GS does not end (hypothetic)
+        for (kk in 1:(nd-4)) {  ## LOOP D1 - DAYS (9)
+         if (switch == 1) break  ## If the GSL already started, break at the next kk+ 
+         if (min(TTY[2,i,j,kk:(kk+4)],na.rm=TRUE) >= 5) {  ## Condition to start GSL
+          switch <- 1   ## GS started (and we assume it cannot end in the first semester)
+          ki <- kk + 4  ## Start of the GSL (hypothetical non-start is replaced)
+          if (ki >= (nd - 4)) break  ## If the start is from day 361, no end is feasible
+          if (ki > km) km <- ki  ## We look for the end of GS in the second semester
+          for (kkk in km:(nd-4)) {  ## LOOP E1 - Within the GS (11) . But only in second semester
+           if (max(TTY[2,i,j,kkk:(kkk+4)],na.rm=TRUE) < 5) kf <- kkk + 3  ## End of the GSL
+           if (max(TTY[2,i,j,kkk:(kkk+4)],na.rm=TRUE) < 5) break 
+           asd <- 0 }  ## Close LOOP E1 (11)
+          if (ki <= kf) GGG[1,i,j,yc] <- kf - ki + 1  ## Days in GS (Classic GSL)
+          asd <- 0 } }  ## Close if, LOOP D1 (9)
+## HAZ 11.2 - GSL (Last to first freeze) ##############################################
+        fr1 <-   1  ## Hypothetic no last freeze (GSL starts on day 1)
+        fr2 <- 365  ## Hypothetic no first freeze (GSL ends on day 365)
+# We go backwards to find the last freeze of winter-spring
+        for (k1 in 183:1) {  ## LOOP D1 - FIRST HALF OF THE YEAR (9)
+         if (TTY[1,i,j,k1] < 0) fr1 <- k1 + 1  ## fr1 is the last freeze
+         if (TTY[1,i,j,k1] < 0) break
+         asd <- 0 }  ## Close LOOP D1 (9)
+# We go onwards to find the first freeze of autumn-winter
+        for (k2 in 184:365) {  ## LOOP D2 - SECOND HALF OF THE YEAR (9)
+         if (TTY[1,i,j,k2] < 0) fr2 <- k2 - 1  ## fr2 is the first freeze
+         if (TTY[1,i,j,k2] < 0) break
+         asd <- 0 }  ## Close LOOP D2 (9)
+        GGG[2,i,j,yc] <- fr2 - fr1 + 1  ## Days between last-first freezes
+## HAZ 11.3 - GDD and GDD within GS (Classic) #########################################
+        GGG[3,i,j,yc] <- sum(- 5 + TTY[2,i,j,1:nd][TTY[2,i,j,1:nd] > 5],na.rm=TRUE)
+        if (GGG[1,i,j,yc] > 0) GGG[4,i,j,yc] <- sum(- 5 + TTY[2,i,j,ki:kf][TTY[2,i,j,ki:kf] > 5],na.rm=TRUE)         
+        asd <- 0 }  ## Close if on sw = 11
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 12 ####################################################################
+#######################################################################################
+       if (sw == 12) { 
+# ANNUAL SNOW (cm)     
+        SNF[1,i,j,yc] <- sum(TTY[i,j,1:nd],na.rm=TRUE)
+# SNOW DAYS (>= 1cm)
+        SNF[2,i,j,yc] <- length(TTY[i,j,1:nd][!is.na(TTY[i,j,1:nd]) & TTY[i,j,1:nd] >=  1])
+# HEAVY SNOW DAYS (>= 15cm)
+        SNF[3,i,j,yc] <- length(TTY[i,j,1:nd][!is.na(TTY[i,j,1:nd]) & TTY[i,j,1:nd] >= 15])
+# MAX 3-DAY SNOW EVENT (cm)
+        ssx <- 0
+        for (k in 1:nd) {  ## LOOP D1 - DAYS (col 9)        
+         if (k >= 3) {
+          ss <- sum(TTY[i,j,k:(k-2)],na.rm=TRUE)                                      
+          if (ss >= ssx) ssx <- ss
+          asd <- 0 } }  ## Close if and LOOP D1 (9) 
+        SNF[4,i,j,yc] <- ssx              
+        if ((sc == 1) & (ssx >= wx[i,j])) wx[i,j] <- ssx  # Most severe event from the past 
+# UNPRECEDENTED 3-DAY EVENT (future vs largest in the past)
+        if (ff >= 15) {
+         kstop <- 3
+         for (kk in 3:nd) {  ## LOOP D2 - DAYS (10)
+          ks <- 0
+          if (kk < kstop) next
+          ks <- sum(TTY[i,j,kk:(kk-2)],na.rm=TRUE)
+          if (ks > wx[i,j]) SNF[5,i,j,yc] <- SNF[5,i,j,yc] + 1
+          if (ks > wx[i,j]) kstop <- kk + 3
+          asd <- 0 } }  ## Close LOOP D2 (10) and if (future; 9)
+        asd <- 0 }  ## Close if on sw == 12 (8)
+#######################################################################################
+#######################################################################################
+
+#######################################################################################
+#######################################################################################
+### CLOSING CORE LOOPs (1/2) and CLEAN ################################################
+#######################################################################################
+## CLOSE GRID LOOPs
+       asd <- 0 }} }  ## Close LOOPs L2-L1 (7-6) and if on sw (to exclude sw == 4)
+    if ((sw == 10) & !is.na(LONx[1,1])) sxy <- 1
+#######################################################################################
+## CLEAN (variables)
+    if (sw %in% c(1,11,12)) rm(TTY)              
+    if (sw %in% c(2,3,4,6,7,8)) rm(TN,TX)
+    if (sw == 2) rm(HU,NET)
+    if (sw == 3) rm(TTN,TTX,HTB,CTB)
+    if (sw == 4) rm(MTN,MTX)
+    if (sw %in% c(5,6,7,8,10)) rm(RR)
+    if (sw %in% c(2,6,9,10)) rm(WN)
+    if (sw == 10) rm(TX,HU,temp,rh,ws,prec,lat,long,FW,df)
+    if (sw == 11) rm(switch,ki,kf,fr1,fr2,k1,k2)
+    gc() }  ## Close LOOP 4 (Years)
+#######################################################################################
+## CLEAN (Files)
+   if (sw %in% c(4,5,6,7,8,10)) {
+    nc_close(AA1)
+    rm(AA1,FF1) }
+   if (sw %in% c(1,2,3,4,6,7,8,11)) {
+    nc_close(AA2)
+    nc_close(AA3)
+    rm(AA2,AA3,FF2,FF3) } 
+   if (sw %in% c(1,11)) {
+    nc_close(AA2x)
+    nc_close(AA3x)
+    rm(AA2x,AA3x,FF2x,FF3x) }
+   if (sw == 10) {
+    nc_close(AA3)
+    rm(AA3,FF3) }   
+   if (sw %in% c(2,10)) {
+    nc_close(AA4)
+    nc_close(AA5)
+    rm(AA4,AA5,FF4,FF5) }
+   if (sw %in% c(6,9)) {
+    nc_close(AA5)
+    rm(AA5,FF5) }
+   if (sw == 12) {
+    nc_close(AA6)
+    nc_close(AA6x)
+    rm(AA6,AA6x,FF6,FF6x) }
+   rm(DDi)
+   gc() }  ## Close LOOP 3 (Files)
+#######################################################################################
+#######################################################################################
+
+   
+#######################################################################################
+### CORE HAZARD 4 - UNIQUELY PLACED AFTER LOOPS 3-4 ###################################
+#######################################################################################
+### 4.1 -  MASK FOR ARID AREAS AND FROZEN LANDS #######################################
+  if (sw == 4) {  ## Major if on sw (L3) 
+   print("core 1/4")  ## Special checkpoint (Hazard 4)
+   if (sc <= 2) {  ## Run only over past data (L4)
+    for (i in 1:nlon) {  ## LOOP L1 - Longitude (L5)
+     for (j in 1:nlat) {  ## LOOP L2 - Latitude (L6)
+# Bridge parameters over 1951-2010     
+      if (sc == 1) {  ## Hist
+       if (is.na(RRM[i,j,1])) next  ## Skip the sea areas using RR
+       ZR <- mean(RRM[i,j,841:1560],na.rm=TRUE)    ## RR average over 1951-2010 (mm)
+       ZP <- mean(PETM[i,j,841:1560],na.rm=TRUE) } ## PET average over 1951-2010 (mm)
+      if (sc == 2) {  ## Hist-nat
+       if (is.na(RRMn[i,j,1])) next                
+       ZR <- mean(RRMn[i,j,841:1560],na.rm=TRUE)    
+       ZP <- mean(PETMn[i,j,841:1560],na.rm=TRUE) } 
+# Can we move on? Do we have all necessary data?
+      if (is.na(ZR) | is.na(ZP)) next
+# Obtain the mask (arid areas from AI and frozen from PET) // Beware: not the frozen mask for Haz 8
+      if (sc == 1) {  ## Hist   
+       MK[i,j]  <- 1                            ## Valid grid points // MK == 1
+       if ((ZR/(ZP+0.1)) <= 0.05) MK[i,j] <- 2  ## Hyper-arid areas  // MK == 2  // AI <= 0.05
+       if (ZP < 30.4)             MK[i,j] <- 3  ## Frozen lands      // MK == 3  // PET < 1 mm/day
+       asd <- 0 }
+      if (sc == 2) {  ## Hist-nat
+       MKn[i,j]  <- 1                          
+       if ((ZR/(ZP+0.1)) <= 0.05) MKn[i,j] <- 2   
+       if (ZP < 30.4)             MKn[i,j] <- 3 
+       asd <- 0 } 
+      asd <- 0 }} ## Close LOOPs L2-L1 (6-5)
+       rm(ZR,ZP)
+       gc() }  ## Close if on sw (4)
+####################################################################################### 
+### 4.2 - SPI AND SPEI ################################################################
+   if (sc == 1) mmm <- nmh    ## Time window 1881-2014
+   if (sc == 2) mmm <- nmn    ## Time window 1881-2020 
+   if (sc >= 3) mmm <- nmt    ## Time window 1881-2100 
+# Matrices (SPI and SPEI, separately) to store the year in the past with largest total severity
+   if (sc == 1) DRPi <- array(0,c(nlon,nlat))   ## For SPI
+   if (sc == 1) DRPe <- array(0,c(nlon,nlat))   ## For SPEI
+# Core Loop (dividing SPI from SPEI)
+   for (s in 1:2) {  ## LOOP S - DROUGHT INDICATOR (SPI or SPEI; L5)
+    print(c(s,"core 2/4"))  ## Special checkpoint (Hazard 4)
+## OUTPUT VARIABLES - SPI and SPEI 
+    DR  <- array(0,c(3,nlon,nlat,nyy)) ## Outputs: Tot Sev, Months in Dr, Unprec Ev (future)
+## Bridge variables  
+    CWBx <- array(NA,c(nlon,nlat,mmm))  ## Climatic Water Balance
+    if ((s == 1) & (sc == 1)) CWBx <- RRM
+    if ((s == 2) & (sc == 1)) CWBx <- RRM - PETM
+    if ((s == 1) & (sc == 2)) CWBx <- RRMn
+    if ((s == 1) & (sc >= 3)) CWBx <- RRM
+    if ((s == 2) & (sc == 2)) CWBx <- RRMn - PETMn
+    if ((s == 2) & (sc >= 3)) CWBx <- RRM - PETM
+    SP  <- array(NA,c(nlon,nlat,mmm))  ## Spi or Spei (output of section 4.2)
+# Core Loop to obtain Spi or Spei
+    for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+     for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+## Avoid no data, sea, and masked areas
+      if (is.na(CWBx[i,j,1])) next 
+      if ((sc == 1) | (sc >= 3)) {
+       if (MK[i,j]  != 1) next
+      } else if (sc == 2) {
+       if (MKn[i,j] != 1) next  
+       asd <- 0 }
+# Prepare the input quantities for package SPEI (CWB organized by months)
+      CWB   <- array(NA,c(mmm))
+      CWBin <- array(NA,c(mmm))
+      IND   <- array(NA,c(mmm))
+#      for (km in 1:12) {  ## LOOP MM1 - Months (L8)
+#       for (k in seq(km,mmm,by=12)) {  ## LOOP MM2 (L9) - Months over the time series // mmm is the key temporal parameter
+       for (k in 1:nmt) {
+        CWB[k] <- CWBx[i,j,k] } 
+# }}  ## Close LOOPs MM2-MM1 (9-8)
+# The package SPEI plays its magic 
+      CWBin <- ts(CWB[],freq=12,start=rst) 
+      IND <- spei(CWBin,acc,ref.start=ri,ref.end=rf,na.rm=TRUE,distribution=distr[s],fit='ub-pwm',verbose=FALSE)
+      XP <- as.vector(IND$fitted)
+      XP[is.infinite(XP)] <- NA  ## With 3-month accumulation, you might have Inf values, with 12-month you should not
+      SP[i,j,1:mmm] <- XP[1:mmm]  }}  ## Close LOOPs L2-L1 (7-6)
+# Clean some memory before moving on
+    rm(IND,CWBin,CWB,CWBx,km,XP)
+    if ((s == 2) & (sc == 2)) rm(RRMn,PETMn) 
+    gc()
+#######################################################################################
+### 4.3 - DROUGHT EVENT-ONLY TIME SERIES ##############################################
+# Event-only means the series has values only within drought events and 0 elsewhere
+    print(c(s,"core 3/4"))  ## Special checkpoint (Hazard 4)
+    EV <- array(0,c(nlon,nlat,nmt))  ## Drought event-only time series
+    for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+     for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+## Avoid no data, sea, and masked areas
+      if (is.na(SP[i,j,acc])) next 
+# Core computations
+      kps <- acc  ## First month of valid data (later the pointer)
+# Loop to search for drought events (3+ consecutive months)
+      for (k in acc:(mmm-2)) {  ## LOOP EV1 - Months (L8)
+       if (k >= kps) {
+## Condition to start the inner loop over the drought event
+        if (is.finite(SP[i,j,k]) & (SP[i,j,k] <= -1) & is.finite(SP[i,j,k+1]) & (SP[i,j,k+1] <= -1) & is.finite(SP[i,j,k+2]) & (SP[i,j,k+2] <= -1)) { 
+         pin <- k
+         for (p in pin:mmm) {  ## LOOP EV2 - Over the drought event (L9)
+          kps <- p + 1    ## The pointer moves forward (so the next loop will start after the end of the drought event) 
+          if (is.na(SP[i,j,p]) | SP[i,j,p] > 0) break  ## Break the loop if the drought ends
+# Assign the real value to the values inside the drought event
+          EV[i,j,p] <- SP[i,j,p] } }} }}}  ## Close LOOP EV2 (9), double if (event ongoing, pointer), LOOPs EV1-L2-L1 (8-7-6)
+# Clean memory before moving on
+    rm(SP,kps,pin)
+    gc()
+# We write the event-only time series for event-only SPEI (needed for HAZ 6)
+    if (s == 2) {
+     OutG1 <- paste0(CLS[sw,s],"EV_",GCM[g],SCN[g,sc],"05_land.nc")
+     OutV1 <- ncvar_def("ev","events",list(dim1,dim2,dim3s),NA,longname="Ev",prec="float")
+     OutF1 <- nc_create(OutG1,list(OutV1,OutX,OutY))
+     ncvar_put(OutF1,OutX,round(LONx,3))
+     ncvar_put(OutF1,OutY,round(LATy,3)) 
+     ncvar_put(OutF1,OutV1,round(EV,2)) 
+     nc_close(OutF1)
+     rm(OutG1,OutV1,OutF1)
+     gc() }  ## Close if
+#######################################################################################
+### 4.4 - ANNUAL DROUGHT SEV, MONTHS IN DROUGHT, LARGEST YEAR (PAST), UNPR YEAR (FUT) #
+    print(c(s,"core 4/4"))
+# We loop over the years (again, within lon-lat loops) as the outputs need to be in annual resolution
+    if (sc <= 2) nyi <-   2  ## Hist and Hist-nat from 1882 (1881 has 11 months with NA)
+    if (sc >= 3) nyi <- 135  ## Scn from 2015
+    if (sc == 1) nyx <- 134  ## Hist until 2014
+    if (sc == 2) nyx <- 140  ## Hist-nat until 2020
+    if (sc >= 3) nyx <- nyy  ## Hist + scn until 2100 
+# Core loops on the grid
+    for (i in 1:nlon) {  ## LOOP L1 - Longitude (L6)
+     for (j in 1:nlat) {  ## LOOP L2 - Latitude (L7)
+## Avoid no data, sea, and masked areas
+      if ((sc == 1) | (sc >= 3)) {
+       if (MK[i,j]  != 1) next
+      } else if (sc == 2) {
+       if (MKn[i,j] != 1) next  
+       asd <- 0 }
+# Core Loop (annual outputs) 
+      for (k in nyi:nyx) {  ## LOOP Y1 - Years (L8)
+       if ((s5ov == 1) & (k > 135) & (k <= 160)) next  ## No data between 2015-2040 for s5-34ov   
+       ki <- 12*(k-1) + 1  ## January of each year
+       kf <- ki + 11       ## December of each year
+# Annual cumulated severity (TDS) and Unprecedented severe years (Hist-nat and Scenarios)
+       DR[1,i,j,k] <- abs(sum(EV[i,j,ki:kf],na.rm=TRUE))
+       if ((s == 1) & (sc == 1) & (DR[1,i,j,k] > DRPi[i,j])) DRPi[i,j] <- DR[1,i,j,k]
+       if ((s == 2) & (sc == 1) & (DR[1,i,j,k] > DRPe[i,j])) DRPe[i,j] <- DR[1,i,j,k]
+       if ((s == 1) & (sc >= 2) & (DR[1,i,j,k] > DRPi[i,j])) DR[3,i,j,k] <- 1
+       if ((s == 2) & (sc >= 2) & (DR[1,i,j,k] > DRPe[i,j])) DR[3,i,j,k] <- 1
+# Annual months in Drought (TDD)
+       DR[2,i,j,k] <- length(EV[i,j,ki:kf][is.finite(EV[i,j,ki:kf]) & (EV[i,j,ki:kf] < 0)]) } }}  ## Close LOOP Y1 (8), then L2-L1 (7-6)
+# Clean (most are scalar, but EV is not)
+    rm(EV)
+    gc()  ## We are still within Loop S, Spi or Spei
+###############################################################################
+###############################################################################
+### WRITING SECTION - UNIQUELY FOR HAZARD 4 ###################################
+    print("Writing")
+    for (sss in 1:3) {  ## LOOP C1 - Three types of outputs (L5)
+     OutG <- paste0(CLS[sw,s],PAR[sw,sss],GCM[g],SCN[g,sc],"05_land.nc")
+     OutV <- ncvar_def(varo[sw,sss],varu[sw,sss],list(dim1,dim2,dim3),NA,longname=varo[sw,sss],prec="float")
+     OutF <- nc_create(OutG,list(OutV,OutX,OutY))
+     ncvar_put(OutF,OutX,round(LONx,3))
+     ncvar_put(OutF,OutY,round(LATy,3)) 
+     ncvar_put(OutF,OutV,DR[sss,1:nlon,1:nlat,1:nyy]) 
+     nc_close(OutF) 
+     rm(OutF,OutG,OutV) }  ## Close LOOP C1 (6)
+# Clean, then move from Spi to Spei (LOOP S)  
+    rm(DR)
+    gc() }  ## Close LOOP S on Spi or Spei (L4) 
+   asd <- 0 }  ## Close if on sw == 4 (HAZ 4; L3)
+#######################################################################################
+
+#######################################################################################
+### WARNING - RUN CORE HAZARD 6 (2/2) ONLY IF HAZ 4 IS COMPLETE #######################
+#######################################################################################
+### CORE HAZARD 6 (2/2) ###############################################################
+#######################################################################################
+  if (sw == 6) {
+# Read time series of monthly drought events (0 no event, negative values within events)
+   FFD  <- paste0(CLS[4,2],"EV_",GCM[g],SCN[g,sc],"05_land.nc")
+   AAD  <- nc_open(FFD)
+   DREV <- ncvar_get(AAD,"ev")
+# Specific parameters depending on the period
+   if (sc == 1) yif <- c(  1,134)  ## Historical (1881-2014)
+   if (sc == 2) yif <- c(  1,140)  ## Hist-nat (1881-2020)
+   if (sc >= 3) yif <- c(135,220)  ## Scenarios (2015-2100)
+# Spatial Loops
+   for (i in 1:nlon) {  ## LOOP L1 - Longitude (L4)
+    for (j in 1:nlat) {  ## LOOP L2 - Latitude (L5)
+### TEST ###
+#     if ((i != xix) | (j != yiy)) next
+### TEST ###
+    if (PQ[i,j] == 0) next   ## Skip points over the sea
+# Temporal Loops   
+    for (yy in yif[1]:yif[2]) {  ## LOOP Y1 - Years (L6)
+     mi <- 1 + 12*(yy-1)  ## First month (inputs)
+     for (mm in mi:(mi+11)) {  ## LOOP M1 - Months (L7)
+      ms <- mm - mi + 1   ## Month as in 1-12
+# Season (Cold or Warm 6 months, split by Hemisphere)
+      se <- 1                                                ## Cold Season    
+      if ((j <= 180) & (ms %in% c(4,5,6, 7, 8, 9))) se <- 2  ## Hot Season (NH)
+      if ((j >  180) & (ms %in% c(1,2,3,10,11,12))) se <- 2  ## Hot Season (SH)
+## COMPOUND 1 - CW-DR #################################################################  
+      if ((se == 1) & (NNN[2,i,j,mm] > 0) & (DREV[i,j,mm] < 0)) CP[1,i,j,yy] <- CP[1,i,j,yy] + 1 
+## COMPOUND 2 - HW-DR #################################################################    
+      if ((se == 2) & (NNN[3,i,j,mm] > 0) & (DREV[i,j,mm] < 0)) CP[2,i,j,yy] <- CP[2,i,j,yy] + 1
+## COMPOUND 3 - RX-DR #################################################################
+      if ((NNN[1,i,j,mm] > 0) & (DREV[i,j,mm] < 0)) CP[3,i,j,yy] <- CP[3,i,j,yy] + 1
+## COMPOUND 4 - CW-RX #################################################################
+      if ((se == 1) & (NNN[2,i,j,mm] > 0) & (NNN[1,i,j,mm] > 0)) CP[4,i,j,yy] <- CP[4,i,j,yy] + 1
+## COMPOUND 5 - HW-RX #################################################################
+      if ((se == 2) & (NNN[3,i,j,mm] > 0) & (NNN[1,i,j,mm] > 0)) CP[5,i,j,yy] <- CP[5,i,j,yy] + 1  
+## COMPOUND 6x - HW-DR-RX - Temporarily discarded #####################################
+#     if ((se == 2) & (NNN[3,i,j,mm] > 0) & (NNN[1,i,j,mm] > 0) & (DREV[i,j,mm] < 0)) CP[6,i,j,yy] <- CP[6,i,j,yy] + 1
+## COMPOUND 6 - RX-WX #################################################################
+      if ((NNN[1,i,j,mm] > 0) & (NNN[4,i,j,mm] > 0)) CP[6,i,j,yy] <- CP[6,i,j,yy] + 1
+      asd <- 0 }} }} } ## Close LOOPs M1-Y1 (7-6) and L2-L1 (5-4), if on sw (3)
+#######################################################################################
+
+#######################################################################################
+### CORE HAZARD 8 (2/2) ###############################################################
+#######################################################################################
+  if (sw == 8) {  ## Hist is included into Hist + Scn
+   print("core 2/2")  ## Special checkpoint (Hazard 8)
+   if (sc == 1) ZCL <- WCL
+   if (sc == 2) ZCL <- WCLn  ## Transfer to avoid splitting Hist + Scn and Hist-nat
+   if (sc >= 3) ZCL <- WCL
+# Grid-point Loops
+   for (i in 1:nlon) {  ## LOOP L1 - Longitude (L4)
+    for (j in 1:nlat) {  ## LOOP L2 - Latitude (L5)
+### TEST ###
+#     if ((i != xix) | (j != yiy)) next
+### TEST ###
+     if (is.na(ZCL[1,i,j,1])) next  # Skip grid points over the sea
+# Core loop over 30y moving window
+     for (yy in 30:nyy) {  ## LOOP YY - Years (1910 is the first 30y value; L6)
+      if ((sc == 1)   & (yy > 134)) next  ## Hist ends on 2014
+      if ((sc == 2)   & (yy > 140)) next  ## Hist-nat ends on 2020
+      if ((sc >= 3)   & (yy < 135)) next  ## Scenarios start on 2015
+      if ((s5ov == 1) & (yy < 190)) next  ## s534ov starts on 2041 (so, 2070 for AI-KG)
+# Initialize monthly variables
+      QTM <- array(NA,c(12))  ## Initialize average monthly values of TM
+      QRR <- array(NA,c(12))  ## Initialize average monthly values of RR
+# Pointers (year and months) 
+      yyi <- yy-29           ## First year (in the 30y interval)
+      mmi <- 1 + 12*(yyi-1)  ## First month (over 30y)
+      mmf <- mmi + 359       ## Last month (over 30y)
+# Parameters to obtain AI and KG
+      XCL[1,i,j,yy]  <- sum(ZCL[1,i,j,mmi:mmf],na.rm=TRUE)/30  ## 1 - RR (Annual)
+      XCL[2,i,j,yy]  <- sum(ZCL[5,i,j,mmi:mmf],na.rm=TRUE)/30  ## 2 - PET (Annual)
+      for (km in 1:12) {  ## LOOP MM - Months (within 30y; L8)
+       QRR[km] <- mean(ZCL[1,i,j,seq(km,360,12)],na.rm=TRUE)   ## Monthly RR (30y Avg)
+       QTM[km] <- mean(ZCL[4,i,j,seq(km,360,12)],na.rm=TRUE) } ## Monthly TM (30y Avg) // Close LOOP MMa (8)
+      XCL[3,i,j,yy] <- max(QTM[1:12],na.rm=TRUE)               ## 3 - TMx (30y)
+      XCL[4,i,j,yy] <- min(QTM[1:12],na.rm=TRUE)               ## 4 - TMn (30y)
+      XCL[5,i,j,yy] <- mean(QTM[1:12],na.rm=TRUE)              ## 5 - TMy (30y)
+      if (j <= 180) {        ## N-HEM
+       XCL[6,i,j,yy] <- sum(QRR[c(1:3,10:12)],na.rm=TRUE)      ## 6 - Winter RR (30y)
+       XCL[7,i,j,yy] <- sum(QRR[c(4:9)],na.rm=TRUE)            ## 7 - Summer RR (30y)
+      } else if (j > 180) {  ## S-HEM
+       XCL[6,i,j,yy] <- sum(QRR[c(4:9)],na.rm=TRUE)
+       XCL[7,i,j,yy] <- sum(QRR[c(1:3,10:12)],na.rm=TRUE) }
+# Compute KG macro-classes (class E is then used in AI)
+      if (is.na(sum(XCL[1:7,i,j,yy]))) next  ## Condition to move on 
+# Compute KG macro-classes (and AI cold)
+      if (XCL[3,i,j,yy] < 10) {           ## Split (E)
+       AKG[3,i,j,yy] <- 5                                      ## KG - Polar (E;5) 
+       AKG[2,i,j,yy] <- 7                                      ## AI - Cold (7)
+      } else if (XCL[3,i,j,yy] >= 10) {   ## Split (A to D)
+       if (XCL[6,i,j,yy] > 0.7*XCL[1,i,j,yy]) {                ## KG - Special threshold on precipitation
+        PTH <- 20*XCL[5,i,j,yy] + 280
+       } else if (XCL[7,i,j,yy] > 0.7*XCL[1,i,j,yy]) {
+        PTH <- 20*XCL[5,i,j,yy]
+       } else {
+        PTH <- 20*XCL[5,i,j,yy] + 140 }
+       if (XCL[1,i,j,yy] <= PTH) {
+        AKG[3,i,j,yy] <- 2                              ## KG - Arid (B;2) 
+       } else {
+        if (XCL[4,i,j,yy] <  -3)  AKG[3,i,j,yy] <- 4    ## KG - Continental (D;4)
+        if (XCL[4,i,j,yy] >= -3)  AKG[3,i,j,yy] <- 3    ## KG - Temperate (C;3)
+        if (XCL[4,i,j,yy] >  18)  AKG[3,i,j,yy] <- 1    ## KG - Tropical (A;1)
+        asd <- 0 }} ## Close double if on KG
+# Compute AI values
+      AKG[1,i,j,yy] <- XCL[1,i,j,yy]/(XCL[2,i,j,yy] + 0.1)     ## AI - Values
+# Compute AI classes
+      if (AKG[2,i,j,yy] == 7) next                                
+      if (AKG[1,i,j,yy] <  0.05)  AKG[2,i,j,yy] <- 1  ## AI - Hyperarid (1)
+      if (AKG[1,i,j,yy] >= 0.05)  AKG[2,i,j,yy] <- 2  ## AI - Arid (2)
+      if (AKG[1,i,j,yy] >= 0.2 )  AKG[2,i,j,yy] <- 3  ## AI - Semiarid (3)
+      if (AKG[1,i,j,yy] >= 0.5 )  AKG[2,i,j,yy] <- 4  ## AI - Dry (4)
+      if (AKG[1,i,j,yy] >= 0.65)  AKG[2,i,j,yy] <- 5  ## AI - Subhumid (5)
+      if (AKG[1,i,j,yy] >  0.75)  AKG[2,i,j,yy] <- 6  ## AI - Humid (6) 
+      asd <- 0 } }} }  ## Close LOOPs YY-L2-L1 (6-5-4), then if on sw
+#######################################################################################
+#######################################################################################
+
+#######################################################################################
+### WRITING SECTION ###################################################################
+#######################################################################################
+  for (ss in 1:12) {  ## LOOP H1 - HAZARDS (L3)
+   if (ss != sw) next  ## Write only the outputs of the selected hazard
+   if (ss ==  4) next   
+   print("Writing")  ## Fifth checkpoint
+   for (aa in 1:7)  {  ## LOOP A1 - Output class (L4) 
+    for (bb in 1:7)  {  ## LOOP A2 - Output parameter (L5)  
+     if ((CLS[ss,aa] == 0) | (PAR[ss,bb] == 0)) next
+     OutG <- paste0(CLS[ss,aa],PAR[ss,bb],GCM[g],SCN[g,sc],"05_land.nc")
+     if (ss != 7) OutV <- ncvar_def(varo[ss,bb],varu[ss,bb],list(dim1,dim2,dim3),NA,longname=varo[ss,bb],prec="float")
+     if (ss == 7) OutV <- ncvar_def(varo[ss,aa],varu[ss,aa],list(dim1,dim2,dim3),NA,longname=varo[ss,aa],prec="float")
+     OutF <- nc_create(OutG,list(OutV,OutX,OutY))
+     ncvar_put(OutF,OutX,round(LONx,3))
+     ncvar_put(OutF,OutY,round(LATy,3))
+     if (ss ==  1) ncvar_put(OutF,OutV,CHW[aa,bb,1:nlon,1:nlat,1:nyy])  
+     if (ss ==  2) ncvar_put(OutF,OutV,TC[bb,1:nlon,1:nlat,1:nyy])  
+     if (ss ==  3) ncvar_put(OutF,OutV,DDD[bb,1:nlon,1:nlat,1:nyy])  
+     if (ss ==  5) ncvar_put(OutF,OutV,RRX[bb,1:nlon,1:nlat,1:nyy])  
+     if (ss ==  6) ncvar_put(OutF,OutV,CP[bb,1:nlon,1:nlat,1:nyy]) 
+     if (ss ==  7) ncvar_put(OutF,OutV,HCN[aa,bb,1:nlon,1:nlat,1:nyy])
+     if (ss ==  8) ncvar_put(OutF,OutV,AKG[bb,1:nlon,1:nlat,1:nyy]) 
+     if (ss ==  9) ncvar_put(OutF,OutV,WSP[bb,1:nlon,1:nlat,1:nyy])
+     if (ss == 10) ncvar_put(OutF,OutV,FDR[bb,1:nlon,1:nlat,1:nyy])
+     if (ss == 11) ncvar_put(OutF,OutV,GGG[bb,1:nlon,1:nlat,1:nyy]) 
+     if (ss == 12) ncvar_put(OutF,OutV,SNF[bb,1:nlon,1:nlat,1:nyy]) 
+     nc_close(OutF)
+     rm(OutG,OutV,OutF)
+     gc() }} } ## Close LOOPs A2-A1-H1 (5-4-3)                                                 
+#######################################################################################
+#######################################################################################
+                                                     
+#######################################################################################
+### CLOSING CORE LOOPs (2/2), CLEAN, QUIT #############################################
+#######################################################################################
+  if (sw == 1) rm(ww,CHW)
+  if (sw == 2) rm(TC)
+  if (sw == 3) rm(DDD)
+  if (sw == 4 & sc == 2) rm(MKn)
+  if (sw == 5) rm(ww,RRX,ss)
+  if (sw == 5 & sc >= 3) rm(ks)
+  if (sw == 6) nc_close(AAD)
+  if (sw == 6) rm(AAD,NNN,CP,FFD,DREV,yif,se)
+  if (sw == 7) rm(HCN)
+  if (sw == 8) rm(QTM,QRR)
+  if (sw == 8 & sc >= 2) rm(AKG,ZCL,XCL)
+  if (sw == 8 & sc == 2) rm(WCLn)
+  if (sw == 9) rm(WSP)
+  if (sw == 10) rm(FDR)
+  if (sw == 11) rm(GGG)
+  if (sw == 12) rm(SNF)
+  rm (nf,yf)
+  gc() } ## Close LOOP 2 (Scenarios, L2)
+#######################################################################################
+ if (sw == 1) rm(PTT,wx)
+ if (sw == 4) rm(MK,nyx,RRM,PETM,DRPi,DRPe,mmm)
+ if (sw %in% c(5,12)) rm(wx)
+ if (sw %in% c(5, 6)) rm(ATT)
+ if (sw == 6) rm(PQ)
+ if (sw == 8) rm(WCL)
+ if (sw == 10) rm(sxy)
+ rm(LONx,LATy,X,Y) 
+ gc() }  ## Close LOOP 1 (GCMs, L1)
+#######################################################################################
+## Clean and quit
+if (sw == 4) rm(acc,ri,rf,rst,distr)
+if (sw != 4) rm(SK)
+rm(nlon,nlat,GCM,BIA,VAR,GEO,PER,D1i,D2i,SCN,yc,nd,conv,nyy,nmt,nmh,CLS,PAR,varo,
+   DMi,MMi,sw,s5ov,nmn,rain,wspd,DSi,DSf,mon,shu,nd1,asd,WD,gf,gi,si,sf,
+   dim1,dim2,dim3,dim3s,snw,varu)
+#rm(xix,yiy)
+gc()
+#######################################################################################
+#######################################################################################
+#######################################################################################

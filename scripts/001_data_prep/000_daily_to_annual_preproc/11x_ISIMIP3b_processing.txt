@@ -1,0 +1,332 @@
+#######################################################################################
+### 2024 - UPDATE - ONLY KOTZ PARAMETERS (5) #####################
+#######################################################################################
+### OUTPUTS ARE ANNUAL (EXTREMES) AND MONTHLY (CLIMATE VARIABLES) #####################
+#######################################################################################
+gx  <- 9  ## Which GCM? (1-10)
+sx  <- 9  ## How many scenarios (in this case all, just hist-nat and ssp4 excluded)
+#######################################################################################
+### TEST ##############################################################################
+#ix <- 380
+#iy <- 90
+#######################################################################################
+
+#######################################################################################
+### GENERAL SETTINGS ##################################################################
+#######################################################################################
+### Basic settings ####################################################################
+require(ncdf4)        ## To open and write ncdf files
+require(SPEI)         ## To compute PET and drought indicators
+memory.limit(999999)  ## Push memory to the limit (no longer supported)
+### Main features and constants #######################################################
+nlon <-  720      ## Longitude grid points
+nlat <-  360      ## Latitude grid points
+conv <-  -273.15  ## °K to °C
+rain <- 86400     ## kg/m2s to mm/day (and cm/day for snow)
+nyy  <-   220     ## Years in 1881-2100
+nm   <- 12        ## Months in a year
+nmt  <- nm*nyy    ## Total number of months in 1881-2100
+nd   <- 365       ## 365 days in a year unlsess clearly specified (leap years)
+asd  <- 0         ## Troll pointer to avoid errors
+#######################################################################################
+### File-names (inputs) ###############################################################
+GCM  <- c("canesm5_r1i1p1f1_","cnrm-cm6-1_r1i1p1f2_","cnrm-esm2-1_r1i1p1f2_",
+          "ec-earth3_r1i1p1f1_","gfdl-esm4_r1i1p1f1_","ipsl-cm6a-lr_r1i1p1f1_",
+          "miroc6_r1i1p1f1_","mpi-esm1-2-hr_r1i1p1f1_","mri-esm2-0_r1i1p1f1_",
+          "ukesm1-0-ll_r1i1p1f2_")  ## GCM (10 available in ISIMIP3b)
+WD   <- c("CAN_ESM5","CNRM_CM6","CNRM_ESM2","EC_EARTH3","GFDL_ESM4","IPSL_CM6A","MIRO_C6",
+          "MPI_ESM1","MRI_ESM2","UK_ESM1")         ## Name of the directory with the input data  
+BIA  <- "w5e5_"                                    ## Bias- adjusted with WFDEI and ERA5
+VAR  <- c("pr","tasmin","tasmax") ## Unit is kg/(m2*s),°K,°K
+GEO  <- "_landonly_daily_"                         ## No data over the sea in this version
+PER  <- c("1881_1890.nc","1891_1900.nc","1901_1910.nc","1911_1920.nc","1921_1930.nc",
+          "1931_1940.nc","1941_1950.nc","1951_1960.nc","1961_1970.nc","1971_1980.nc",
+          "1981_1990.nc","1991_2000.nc","2001_2010.nc","2011_2014.nc",
+          "2015_2020.nc","2021_2030.nc","2031_2040.nc","2041_2050.nc","2051_2060.nc",
+          "2061_2070.nc","2071_2080.nc","2081_2090.nc","2091_2100.nc")
+#######################################################################################
+
+#######################################################################################
+### CLASSIC CLIMATE VARIABLES #########################################################
+# This part includes annual and monthly meteorological variables (RR,TN,TM,TX)
+### ADDITIONAL KOTZ-WAIDELICH INDICATORS ##############################################
+# TM (avg) and RR (sum) are part of Classic Climate Variables
+# Daily Temperature Variability, Number of Wet Days (>1mm), Extreme Rainfall Parameter
+#######################################################################################
+# NAMES FOR FILES AND VARIABLES (OUTUTS)
+ZZ1  <- c("RR_","TN_" ,"TM_" ,"TX_" ,"TVAR_","WD_" ,"PEXT_")
+varv <- c("mm" ,"degC","degC","degC","degC" ,"days","mm")
+vary <- "annual"
+varm <- "monthly"
+#######################################################################################
+### Dimensions ########################################################################
+# Set dimensions of the output ncdf files (once is enough) 
+dim1  <- ncdim_def("x","row",1:nlon,longname="x_rows")   ## Lon-based
+dim2  <- ncdim_def("y","col",1:nlat,longname="y_cols")   ## Lat-based
+dim3m <- ncdim_def("time","months",1:nm,unlim=TRUE)  ## 12m  
+OutX  <- ncvar_def("lon","degrees_east",list(dim1,dim2),NA,longname="Longitude",prec="float")
+OutY  <- ncvar_def("lat","degrees_north",list(dim1,dim2),NA,longname="Latitude",prec="float")
+#######################################################################################
+### Temporal features (days, months, seasons) #########################################
+MMd <- c(31,28,31, 30, 31, 30, 31, 31, 30, 31, 30, 31) ## Number of days per month
+MMi <- c( 1,32,60, 91,121,152,182,213,244,274,305,335) ## First day of each month
+MMf <- c(31,59,90,120,151,181,212,243,273,304,334,365) ## Last day of each month
+### Temporal features (days, months, seasons) #########################################
+# Example: 1881-1890 is D2i (Leap are 4th and 8th), 1891-1900 is D1i (Leap are 2nd, 6th, 10th)
+D1i <- c(1,366,731,1096,1462,1827,2192,2557,2923,3288) ## Leap years: 4th and 8th (in 10-year files)
+D2i <- c(1,366,732,1097,1462,1827,2193,2558,2923,3288) ## Leap years: 2nd, 6th, 10th
+#######################################################################################
+### Scenarios #########################################################################
+SCN <- array("xxx",c(10,9))  ## Matrix [rows are GCMs, cols are scenarios, if available]
+for (gg in 1:10) {  ## LOOP G1 - GCMs 
+ SCN[gg,1] <- "historical_"
+ if (gg %in% c(1,2,5,6,7,9)) SCN[gg,2] <- "hist-nat_"
+ if (gg %in% c(5,6,9,10))    SCN[gg,3] <- "ssp119_"
+ SCN[gg,4] <- "ssp126_"
+ if (gg %in% c(5,6,8,9,10))  SCN[gg,5] <- "ssp245_"
+ SCN[gg,6] <- "ssp370_"
+ if (gg %in% c(6,9))         SCN[gg,7] <- "ssp460_"
+ if (gg %in% c(1,3,6,9,10))  SCN[gg,8] <- "ssp534-over_"
+ SCN[gg,9] <- "ssp585_" }  ## Close LOOP G1 
+# Hist 1851-2014 (for us 1881-2014), scenarios 2015-2100, ssp534-over 2040-2100 (for us 2041-2100)
+#######################################################################################
+
+
+#######################################################################################
+### CORE LOOP SEQUENCY: GCMs (1), SCENARIOs (2), FILEs (3), YEARs (4) #################
+#######################################################################################
+#######################################################################################
+### CORE LOOP 1 - GLOBAL CLIMATE MODELS (10 GCMs) #####################################
+#######################################################################################
+for (g in gx:gx) {  ## LOOP 1 - GCMs (C11)
+ print(c("GCM",g))  ## First checkpoint (GCM out of 10)
+ setwd(paste0("E:/",WD[g],"/"))  ## Directory with INPUT DATA 
+
+#######################################################################################
+# We allocate Lon-Lat general variables
+ LONx <- array(NA,c(nlon,nlat))
+ LATy <- array(NA,c(nlon,nlat))
+#######################################################################################
+# Bridge variables for percentiles over 1981-2010 (HAZ 1,5,6)
+ TT  <- array(NA,c(nlon,nlat,nd))   ## RR99 - Daily values
+ PTT <- array(NA,c(nlon,nlat))      ## Same as above but 99.5th over 99th on single days
+#######################################################################################
+### PERCENTILES ON THE SINGLE DAY #####################################################
+ print("Reading for percentiles")  ## Precipitation only
+ F1 <- paste0(GCM[g],BIA,SCN[1],VAR[1],GEO,PER[11])  ## 1981-1990
+ F2 <- paste0(GCM[g],BIA,SCN[1],VAR[1],GEO,PER[12])  ## 1991-2000
+ F3 <- paste0(GCM[g],BIA,SCN[1],VAR[1],GEO,PER[13])  ## 2001-2010
+ A1 <- nc_open(F1)  ## Open the ncdf files
+ A2 <- nc_open(F2)
+ A3 <- nc_open(F3)
+ T1 <- ncvar_get(A1,VAR[1])  ## Get the input data (10-year chunks)
+ T2 <- ncvar_get(A2,VAR[1])
+ T3 <- ncvar_get(A3,VAR[1])
+# Grid-scale Loops ####################################################################
+ for (i in 1:nlon) {  ## LOOP L1 - Longitude (L4)
+  if (i %in% c(72,144,216,288,360,432,504,576,648)) print(c("Percentiles",100*i/nlon))  ## Visual progress checkpoint
+  for (j in 1:nlat) {  ## LOOP L2 - Latitude (L5)
+### TEST (1)
+#   if (i != ix & j != iy) next
+### TEST (1)
+   if (is.na(T1[i,j,1])) next  ## Skip grid points over the sea (repeat this line anytime necessary)
+   for (k in 1:nd) {  ## LOOP D1 - Days (365) - We do not consider leap years at this stage (L6)
+# We convert here for the computations on percentiles
+    TT[i,j,k] <- rain*quantile(c(T1[i,j,seq(k,k+(9*nd),nd)],T2[i,j,seq(k,k+(9*nd),nd)],T3[i,j,seq(k,k+(9*nd),nd)]),0.99,na.rm=TRUE)  ## RR99     
+    asd <- 0 } }} ## Close LOOPs D1-L2-L1 (6-4)
+# Close files and clean before moving to second variable
+ nc_close(A1)
+ nc_close(A2)
+ nc_close(A3)
+ rm(F1,A1,F2,F3,A2,A3)
+ rm(T1,T2,T3)
+ gc()
+#######################################################################################
+### PERCENTILES ON 15-DAY MOVING WINDOW ###############################################
+ print("15-day percentiles")  ## Precipitation only
+ for (i in 1:nlon) {  ## LOOP L1 - Longitude (L3)
+  for (j in 1:nlat) {  ## LOOP L2 - Latitude  (L4)
+### TEST (2)
+#   if (i != ix & j != iy) next
+### TEST (2)
+   if (is.na(TT[i,j,1])) next  ## Skip grid points over the sea
+# TT is already converted into mm/day, so PTT is.
+   PTT[i,j] <- unname(quantile(TT[i,j,1:nd],0.995,na.rm=TRUE))  ## RR995 of 99th over any single day
+   asd <- 0 }}  ## Close LOOPs L2-L1
+# Clean memory
+ rm(TT)
+ gc() 
+#######################################################################################
+
+#######################################################################################
+### CORE LOOP 2 - SCENARIOS ###########################################################
+#######################################################################################
+ for (sc in 1:sx) {  ## LOOP 2 - Historical + Hist-nat + Scenarios (L2) 
+  print(c("Scenario",sc))  ## Second checkpoint (Scenarios out of 9)
+  if (sc %in% c(2,7)) next
+  if (SCN[g,sc] == "xxx") next  ## Unavailable scenario for that GCM
+
+#######################################################################################
+### Time interval for the analyses depends on the hist or scenario and GCM
+# Number of files to open (beware of the exceptions) - Numbering is bound to the period 
+  if (sc <= 2)              nf <- c( 1,14)  ## Hist and hist-nat (1881-2014 and 1881-2020)
+  if (sc %in% c(3,4,5,6,9)) nf <- c(15,23)  ## Scenarios (2015-2100)
+  if (sc == 8)              nf <- c(18,23)  ## SSP5-3.4ov (2041-2100)
+# Special switch for ssp5-3.4ov
+  s5ov <- 0
+  if (SCN[g,sc] == "ssp534-over_") s5ov <- 1
+#######################################################################################
+
+#######################################################################################
+### CORE LOOP 3 - FILES ###############################################################
+#######################################################################################
+  for (ff in nf[1]:nf[2]) {  ## LOOP 3 - Files (L3)
+
+#######################################################################################
+# Number of years for each chunk  
+   yf <- 10                             ## Usually 10-year chunks (also 2011-20 hist-nat)
+   if ((sc == 1) & (ff == 14)) yf <- 4  ## 4 years if 2011-2014 (hist)
+   if (ff == 15)               yf <- 6  ## 6 years if 2015-2020 (scen)
+#######################################################################################
+### INPUT FILES #######################################################################
+   FF1 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[1],GEO,PER[ff])  ## RR (Kg/m2s)
+   FF2 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[2],GEO,PER[ff])  ## TN (°K)
+   FF3 <- paste0(GCM[g],BIA,SCN[g,sc],VAR[3],GEO,PER[ff])  ## TX (°K)
+   AA1 <- nc_open(FF1)  
+   AA2 <- nc_open(FF2)
+   AA3 <- nc_open(FF3)
+## LON-LAT READING (1/2)- First file in the hist block (once)
+   if (sc == 1 & ff == 1) { 
+    X <- ncvar_get(AA1,"lon")  
+    Y <- ncvar_get(AA1,"lat") }
+#######################################################################################
+
+#######################################################################################
+### CORE LOOP 4 - YEARS ###############################################################
+#######################################################################################
+   for (yy in 1:yf) {  ## LOOP 4 - YEARS (within Files) (L4)
+
+#######################################################################################
+## POINTERS (ALL HAZARDS)
+# Years (yc is the counter and the position in the outputs) 
+    if (ff <= 14) yc <- yy + 10*(ff-1)  ## From 1881 to 2014 (hist) or 2020 (hist-nat)
+    if (ff == 15) yc <- 134 + yy        ## 2015-2020 (scenarios)
+    if (ff >= 16) yc <- yy + 10*(ff-2)  ## From 2021 (scenarios)
+# Days
+    if  (yy == 1)                           DDi <- array(0,c(10))   ## Starting position of each year
+    if ((yy == 1) & (((yc + 3) %% 4) == 0)) DDi[1:10] <- D1i[1:10]  ## Jan 1 for 10 years (fourth year is leap)
+    if ((yy == 1) & (((yc + 1) %% 4) == 0)) DDi[1:10] <- D2i[1:10]  ## Jan 1 for 10 years (second year is leap)
+#######################################################################################
+    year <- yc + 1880
+    print(c("Core",year))
+## READING THE INPUTS - CURRENT YEAR
+    RR <- ncvar_get(AA1,VAR[1],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd))  ## RR - CURRENT YEAR 
+    TN <- ncvar_get(AA2,VAR[2],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd))  ## TN - CURRENT YEAR
+    TX <- ncvar_get(AA3,VAR[3],start=c(1,1,DDi[yy]),count=c(nlon,nlat,nd))  ## TX - CURRENT YEAR
+
+#######################################################################################
+### ALL-IN-ONE OUTPUT VARIABLES (ONE FOR EACH YEAR)
+# Core variables - RR, TN, TM, TX (Mean Values, also monthly)
+# Three special Kotz parameters - Daily T Variability, Wet Days, Extreme Rainfall
+    OUTy <- array(0,c(7,nlon,nlat))     ## Annual 
+    OUTm <- array(0,c(7,nlon,nlat,nm))  ## Monthly
+# We now loop on 12 months to create the annual vectors
+    for (m in 1:nm) {  ## LOOP M - Files = Months (L2) 
+     for (i in 1:nlon) {  ## LOOP LX (L3)
+      for (j in 1:nlat) {  ## LOOP LY (L4)
+# LON-LAT READING (2/2) - First year, first file, hist block (once)
+       if (sc == 1 & ff == 1 & yy == 1) {
+        LONx[i,j] <- X[i]
+        LATy[i,j] <- Y[j] }
+### TEST (3)
+#   if (i != ix & j != iy) next
+### TEST (3)
+# Skip non-land points
+       if (is.na(RR[i,j,1])) next 
+# Some outputs can be computed here (monthly and annual core variables)
+       OUTm[1,i,j,m] <- rain*sum(RR[i,j,MMi[m]:MMf[m]],na.rm=TRUE)     ## Monthly RR
+       OUTm[2,i,j,m] <- conv + mean(TN[i,j,MMi[m]:MMf[m]],na.rm=TRUE)  ## Monthly TN
+       OUTm[4,i,j,m] <- conv + mean(TX[i,j,MMi[m]:MMf[m]],na.rm=TRUE)  ## Monthly TX
+       OUTm[3,i,j,m] <- 0.5*(OUTm[2,i,j,m] + OUTm[4,i,j,m])            ## Monthly TM
+       if (m == nm) {  ## Annual values computed when the monthly loop is on December
+        OUTy[1,i,j] <- sum(OUTm[1,i,j,1:nm],na.rm=TRUE)   ## Annual RR         
+        OUTy[2,i,j] <- mean(OUTm[2,i,j,1:nm],na.rm=TRUE)  ## Annual TN
+        OUTy[3,i,j] <- mean(OUTm[3,i,j,1:nm],na.rm=TRUE)  ## Annual TM
+        OUTy[4,i,j] <- mean(OUTm[4,i,j,1:nm],na.rm=TRUE)  ## Annual TX
+        asd <- 0 } }} } ## Close if on m, then LOOPs LY-LX-M (4-3) 
+# We now have all OUTPUTS from 1 to 4 (Annual and Monthly)
+### KOTZ PARAMETERS ###################################################################
+    for (i in 1:nlon) {  ## LOOP LX2 (L2)
+     for (j in 1:nlat) {  ## LOOP LY2 (L3)
+### TEST (4)
+#   if (i != ix & j != iy) next
+### TEST (4)
+      if (is.na(RR[i,j,1])) next  ## Skip non-land grid points
+      for (k in 1:nd) {  ## LOOP D1c - DAYS (Entire Year; L4)
+#      mxm <- 1 + k%/%30.42
+#      if (rain*RR[i,j,k] >= PTT[i,j]) OUTm[7,i,j,mxm] <- OUTm[7,i,j,mxm] + rain*RR[i,j,k]  ## Monthly Kotz Pext (Output)
+       if (rain*RR[i,j,k] >= PTT[i,j]) OUTy[7,i,j]     <- OUTy[7,i,j] + rain*RR[i,j,k]      ## Annual Kotz Pext (Output)
+#      if (rain*RR[i,j,k] > 1)         OUTm[6,i,j,mxm] <- OUTm[6,i,j,mxm] + 1               ## Monthly Kotz Wet days (Output)
+       if (rain*RR[i,j,k] > 1)         OUTy[6,i,j]     <- OUTy[6,i,j] + 1                   ## Annual Kotz Wet days (Output)
+       asd <- 0  }  ## Close if and LOOP D1c (4)
+###
+      for (m in 1:nm) {  ## LOOP M - MONTHS (L4)
+       MTM <- OUTm[3,i,j,m]  ## Monthly TM (converted)
+       STM <- 0
+       for (dd in MMi[m]:MMf[m]) {  ## LOOP DM - DAYS WITHIN MONTH (L5)
+        DTM <- conv + (0.5*(TN[i,j,dd] + TX[i,j,dd]))  ## Need to be converted here
+        STM <- STM + (DTM-MTM)^2  ## No need to convert it again
+        asd <- 0 }  ## Close LOOP DM (5)    
+       OUTm[5,i,j,m] <- sqrt(STM/MMd[m]) }  ## Close LOOP M (4)
+      OUTy[5,i,j] <- mean(OUTm[5,i,j,1:nm])
+      asd <- 0 }}  ## Close LOOPs LY-LX (3-2) 
+    rm(RR,TN,TX,MTM,STM,DTM)
+    gc()
+#######################################################################################
+
+#######################################################################################
+### WRITING SECTION (ANNUAL & MONTHLY FOR THIS YEAR) ##################################
+#######################################################################################
+    for (xyz in 1:7) {  ## LOOP O - OUTPUTS (L2)
+     OutFy <- paste0(WD[g],"_",SCN[g,sc],ZZ1[xyz],year,".nc")    
+     OutVy <- ncvar_def(vary,varv[xyz],list(dim1,dim2),NA,longname=vary,prec="float")
+     OutGy <- nc_create(OutFy,list(OutVy,OutX,OutY))
+     ncvar_put(OutGy,OutVy,round(OUTy[xyz,1:nlon,1:nlat],2))  
+     ncvar_put(OutGy,OutX,round(LONx,2))
+     ncvar_put(OutGy,OutY,round(LATy,2))
+# Monthly outputs
+     if (xyz <= 4) {
+      OutFm <- paste0(WD[g],"_",SCN[g,sc],ZZ1[xyz],year,"_MM.nc")
+      OutVm <- ncvar_def(varm,varv[xyz],list(dim1,dim2,dim3m),NA,longname=varm,prec="float")
+      OutGm <- nc_create(OutFm,list(OutVm,OutX,OutY))
+      ncvar_put(OutGm,OutVm,round(OUTm[xyz,1:nlon,1:nlat,1:nm],2))  
+      ncvar_put(OutGm,OutX,round(LONx,2))
+      ncvar_put(OutGm,OutY,round(LATy,2)) }
+# Clean
+     nc_close(OutGy)
+     if (xyz <= 4) nc_close(OutGm)
+     rm(OutFy,OutGy,OutVy)
+     if (xyz <= 4) rm(OutFm,OutGm,OutVm)  
+     gc() } ## Close LOOP O (2)                                                 
+#######################################################################################
+    rm(OUTy,OUTm,year,yc)
+    gc() }  ## Close LOOP Y 
+#######################################################################################
+   nc_close(AA1)
+   nc_close(AA2)
+   nc_close(AA3)
+   rm(yf,FF1,FF2,FF3,AA1,AA2,AA3)
+   gc() }  ## Close LOOP F
+  rm(nf,s5ov)
+  gc() }  ## Close LOOP S
+ rm(LONx,LATy,PTT,X,Y)
+ gc() }  ## Close LOOP 1 (GCMs) (1)
+#######################################################################################
+#######################################################################################
+### Final Cleaning and Quit ###########################################################
+rm(gx,nlon,nlat,conv,rain,nyy,nmt,nd,asd,nm,GCM,WD,BIA,VAR,GEO,PER,ZZ1,vary)
+rm(varv,varm,dim1,dim2,dim3m,OutX,OutY,MMd,MMi,MMf,D1i,D2i,SCN,g,sx)
+gc()
+#######################################################################################
+#######################################################################################
+#######################################################################################
